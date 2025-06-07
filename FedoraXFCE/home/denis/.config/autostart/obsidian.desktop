@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Obsidian
+Exec=flatpak run md.obsidian.Obsidian
+Icon=~/.config/obsidian/md.obsidian.Obsidian.png
+Type=Application
+Categories=Utility;TextEditor;

@@ -80,13 +80,11 @@
       <property name="&lt;Super&gt;e" type="string" value="thunar"/>
       <property name="XF86WWW" type="string" value="exo-open --launch WebBrowser"/>
       <property name="override" type="bool" value="true"/>
-      <property name="&lt;Primary&gt;Shift_L" type="string" value="xkb-switch -s ru"/>
-      <property name="&lt;Primary&gt;Shift_R" type="string" value="xkb-switch -s us"/>
-      <property name="&lt;Alt&gt;Shift_L" type="string" value="xkb-switch -s ru"/>
       <property name="&lt;Super&gt;l" type="string" value="xflock4"/>
-      <property name="&lt;Super&gt;1" type="string" value="xkb-switch -s &apos;ru(legacy)&apos;"/>
-      <property name="&lt;Super&gt;2" type="string" value="xkb-switch -s us"/>
       <property name="&lt;Super&gt;period" type="string" value="rofimoji"/>
+      <property name="&lt;Alt&gt;Tab" type="string" value="/home/denis/bin/rofi-window-local.sh"/>
+      <property name="&lt;Primary&gt;Right" type="string" value="xkb-switch -s us"/>
+      <property name="&lt;Primary&gt;Left" type="string" value="xkb-switch -s &apos;ru(legacy)&apos;"/>
     </property>
   </property>
   <property name="xfwm4" type="empty">
@@ -172,7 +170,6 @@
       <property name="&lt;Primary&gt;F3" type="string" value="workspace_3_key"/>
       <property name="&lt;Shift&gt;&lt;Alt&gt;Page_Down" type="string" value="lower_window_key"/>
       <property name="&lt;Primary&gt;F9" type="string" value="workspace_9_key"/>
-      <property name="&lt;Alt&gt;Tab" type="string" value="cycle_windows_key"/>
       <property name="&lt;Primary&gt;&lt;Shift&gt;&lt;Alt&gt;Right" type="string" value="move_window_right_key"/>
       <property name="&lt;Alt&gt;F6" type="string" value="stick_window_key"/>
       <property name="&lt;Primary&gt;&lt;Alt&gt;KP_5" type="string" value="move_window_workspace_5_key"/>
@@ -195,7 +192,7 @@
       <property name="&lt;Super&gt;KP_Left" type="string" value="tile_left_key"/>
       <property name="&lt;Shift&gt;&lt;Alt&gt;Page_Up" type="string" value="raise_window_key"/>
       <property name="&lt;Primary&gt;&lt;Alt&gt;Home" type="string" value="move_window_prev_workspace_key"/>
-      <property name="&lt;Alt&gt;&lt;Shift&gt;Tab" type="string" value="cycle_reverse_windows_key"/>
+      <property name="cycle_windows_key" type="string" value="Alt"/>
       <property name="&lt;Alt&gt;F12" type="string" value="above_key"/>
       <property name="&lt;Primary&gt;&lt;Shift&gt;&lt;Alt&gt;Up" type="string" value="move_window_up_key"/>
       <property name="&lt;Primary&gt;F5" type="string" value="workspace_5_key"/>

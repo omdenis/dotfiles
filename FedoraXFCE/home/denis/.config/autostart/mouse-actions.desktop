@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Mouse Actions
+Exec=/home/denis/apps/mouse-actions-gui_0.4.5_amd64.AppImage
+Icon=mouse
+Comment=Start mouse-actions GUI on login
+X-GNOME-Autostart-enabled=true

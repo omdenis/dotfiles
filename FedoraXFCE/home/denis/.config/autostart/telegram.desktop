@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=telegram
+Comment=
+Exec=flatpak run org.telegram.desktop
+Icon=
+Path=
+Terminal=false
+StartupNotify=false

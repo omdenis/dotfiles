@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Chrome
+Comment=
+Exec=flatpak run com.google.Chrome --env=CHROME_FLAGS="--disable-gpu"
+Icon=applications-internet
+Path=
+Terminal=false
+StartupNotify=false
