@@ -11,6 +11,9 @@ from dotenv import load_dotenv
 
 # sudo dnf install xfce4-screenshooter xdotool xclip
 
+
+
+
 load_dotenv(os.path.expanduser("~/.env"))
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 REGION_FILE = "/home/denis/.config/ss_region.json"
