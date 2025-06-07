@@ -2,6 +2,7 @@ import os
 import re
 import json
 import subprocess
+import argparse
 import asyncio
 from pathlib import Path
 from telegram import Bot
@@ -12,26 +13,48 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.expanduser("~/.env"))
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-
 REGION_FILE = "/home/denis/.config/ss_region.json"
 IMAGE_FILE = "/tmp/screenshot.png"
 
+CONFIG_PATH = Path.home() / ".config" / "tgsnap"
+CONFIG_FILE = CONFIG_PATH / "config.json"
+
 def main():    
-    chat_id, thread_id = parse_telegram_topic_url()        
+    parser = argparse.ArgumentParser(description="Screenshot sender to Telegram")
+    parser.add_argument("--init", action="store_true", help="Запуск с настройкой канала")
+    args = parser.parse_args()
 
-    while True:
-        line = input("👉 ").strip()
-        if line.lower() in ["exit", "quit"]:
-            break
-
+    if args.init:        
         try:
-           take_screenshot()
-           asyncio.run(send_to_telegram(chat_id, thread_id))
-
+            chat_id, thread_id = parse_telegram_topic_url()        
+            save_config(chat_id, thread_id)
         except Exception as e:
             print(f"❌ Ошибка: {e}")
-            continue
+            return
+     
 
+    chat_id, thread_id = load_config()
+
+    try:
+        take_screenshot()
+        asyncio.run(send_to_telegram(chat_id, thread_id))
+
+    except Exception as e:
+        print(f"❌ Ошибка: {e}")    
+
+
+def save_config(chat_id, thread_id):
+    CONFIG_PATH.mkdir(parents=True, exist_ok=True)
+    with open(CONFIG_FILE, "w") as f:
+        json.dump({"chat_id": chat_id, "thread_id": thread_id}, f)
+    print(f"✅ Конфиг сохранён в {CONFIG_FILE}")
+
+def load_config():
+    if not CONFIG_FILE.exists():
+        raise FileNotFoundError("Конфиг не найден. Запусти скрипт с параметром --init")
+    with open(CONFIG_FILE) as f:
+        data = json.load(f)
+    return data["chat_id"], data["thread_id"]
 
 # === СКРИНШОТ X11 (XFCE)
 
