@@ -30,9 +30,7 @@ CONFIG_FILE = CONFIG_PATH / "config.json"
 bot = Bot(token=BOT_TOKEN)
 
 def main():    
-    result = asyncio.run(handle_init())
-    if result:
-        return
+    asyncio.run(handle_init())
 
     parser = argparse.ArgumentParser(description="Screenshot sender to Telegram")
     parser.add_argument("--init", action="store_true", help="Запуск с настройкой канала")
