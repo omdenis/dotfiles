@@ -77,9 +77,11 @@ print_file_info() {
     esac
 
     # === Output ===
+    echo "$OUTPUT_PATH"
     echo "Video: $vcodec, ${width}x${height}, fps=${fps_val}, ${vbitrate_kbps} kbps"
     echo "Audio: $acodec, $achan, ${arate} Hz, ${abitrate_kbps} kbps"
     echo "Duration: $duration_fmt (${duration}s)"
+    echo
 }
 
 
@@ -132,11 +134,14 @@ for FILE in "$TEMP_DIR"/*; do
     SAFE_NAME="${SAFE_NAME%.*}"
     OUTPUT_NAME="${SAFE_NAME}.mp4"
 
+    echo "📌 [ORIGINAL]"
+    print_file_info "$FILE"    
+
     # === Encode 1: Slides full ===
     TYPE="02_slides"
     mkdir -p "$BASE_DIR/$TYPE/"
     OUTPUT_PATH="$BASE_DIR/$TYPE/$OUTPUT_NAME"
-    echo "📦 [Slides] Encoding: $OUTPUT_NAME"
+    echo "📦 [Slides]"
     "$FFMPEG" -y -i "$FILE" \
         -hide_banner -nostats -loglevel error \
         -threads 4 \
@@ -148,15 +153,13 @@ for FILE in "$TEMP_DIR"/*; do
         -c:a aac -ac 1 -b:a 64k \
         -tune stillimage \
         -movflags +faststart "$OUTPUT_PATH" < /dev/null
-    print_file_info "$OUTPUT_PATH"
-    echo "✅ Saved: $OUTPUT_PATH"
-    echo
+    print_file_info "$OUTPUT_PATH"        
 
     # === Encode 2: Mobile HQ ===
     TYPE="03_mobile"
     mkdir -p "$BASE_DIR/$TYPE/"
     OUTPUT_PATH="$BASE_DIR/$TYPE/$OUTPUT_NAME"
-    echo "📦 [Mobile HQ] Encoding: $OUTPUT_NAME"
+    echo "📦 [Mobile HQ]"
     "$FFMPEG" -y -i "$FILE" \
         -hide_banner -nostats -loglevel error \
         -threads 4 \
@@ -168,14 +171,12 @@ for FILE in "$TEMP_DIR"/*; do
         -c:a aac -ac 1 -b:a 64k \
         -movflags +faststart "$OUTPUT_PATH" < /dev/null    
     print_file_info "$OUTPUT_PATH"
-    echo "✅ Saved: $OUTPUT_PATH"
-    echo
 
     # === Encode 3: Slides x2 ===
-    TYPE="02_slides_x2"
+    TYPE="02_slides_half"
     mkdir -p "$BASE_DIR/$TYPE/"
     OUTPUT_PATH="$BASE_DIR/$TYPE/$OUTPUT_NAME"
-    echo "📦 [Slides /2 size] Encoding: $OUTPUT_NAME"
+    echo "📦 [Slides, ½ size]"
     "$FFMPEG" -y -i "$FILE" \
         -hide_banner -nostats -loglevel error \
         -threads 4 \
@@ -188,8 +189,6 @@ for FILE in "$TEMP_DIR"/*; do
         -tune stillimage \
         -movflags +faststart "$OUTPUT_PATH" < /dev/null    
     print_file_info "$OUTPUT_PATH"
-    echo "✅ Saved: $OUTPUT_PATH"
-    echo
 
     ((COUNTER++))
 done
