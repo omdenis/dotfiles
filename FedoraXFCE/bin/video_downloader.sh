@@ -19,6 +19,46 @@ pad_number() {
     printf "%03d" "$1"
 }
 
+get_safe_name_from_url() {
+    local url="$1"
+    local name=""
+
+    if [[ "$url" =~ "youtube.com" || "$url" =~ "youtu.be" ]]; then
+        name=$(yt-dlp --get-id "$url" 2>/dev/null)
+    else
+        # remove query params
+        local clean_url="${url%%\?*}"
+        local base=$(basename "$clean_url")
+        name="${base%%.*}"
+    fi
+
+    # fallback if name is empty
+    if [[ -z "$name" ]]; then
+        name="unknown_$(date +%s)"
+    fi
+
+    echo "$name"
+}
+
+validate_file() {
+    local file="$1"
+
+    # Проверка: существует и не пустой
+    if [[ ! -f "$file" || ! -s "$file" ]]; then
+        echo "⚠️  Skipped: File not found or empty → $file"
+        return 1
+    fi
+
+    # Проверка: можно ли считать duration
+    if ! ffprobe -v error -show_entries format=duration \
+        -of default=noprint_wrappers=1:nokey=1 "$file" > /dev/null; then
+        echo "⚠️  Skipped: File not valid media or corrupted → $file"
+        return 1
+    fi
+
+    return 0
+}
+
 print_file_info() {
     local format="$1"
     local file="$2"
@@ -102,17 +142,15 @@ while IFS= read -r url <&3; do
     [[ -z "$url" || "$url" =~ ^# ]] && continue
 
     echo "➡️  Downloading: $url"
+
     NUM=$(pad_number "$COUNTER")
-    SAFE_NAME=""
+    SAFE_NAME=$(get_safe_name_from_url "$url")
     FILENAME=""
 
-    if [[ "$url" =~ "youtube.com" || "$url" =~ "youtu.be" ]]; then
-        yt_id=$(yt-dlp --get-id "$url")
-        SAFE_NAME="${yt_id}"
+    if [[ "$url" =~ "youtube.com" || "$url" =~ "youtu.be" || "$url" == *playlist* ]]; then
         yt-dlp -S "res:1080,fps" -o "$TEMP_DIR/${NUM}_${SAFE_NAME}.%(ext)s" "$url"
-    elif [[ "$url" == *.m3u8 ]]; then
-        base=$(basename "$url")
-        SAFE_NAME="${base%%.*}"
+        FILENAME=$(ls -t "$TEMP_DIR/${NUM}_${SAFE_NAME}."* | head -n1)
+    elif [[ "$url" == *.m3u8 || "$url" == *".m3u8?"* ]]; then
         FILENAME="$TEMP_DIR/${NUM}_${SAFE_NAME}.ts"
         "$FFMPEG" -y -i "$url" -c copy "$FILENAME"
     else
@@ -124,6 +162,7 @@ while IFS= read -r url <&3; do
     echo
 
     ((COUNTER++))
+
 done < "$INPUT_FILE"
 
 exec 3<&-
@@ -143,7 +182,8 @@ for FILE in "$TEMP_DIR"/*; do
     OUTPUT_NAME="${SAFE_NAME}.mp4"
 
     print_file_info "📌 [ORIGINAL]" "$FILE"    
-
+    validate_file "$FILE"
+    
     # === Encode 2: Mobile HQ ===
     TYPE="03_mobile"
     mkdir -p "$BASE_DIR/$TYPE/"
@@ -153,7 +193,7 @@ for FILE in "$TEMP_DIR"/*; do
         -threads 4 \
         -map_metadata -1 \
         -max_muxing_queue_size 512 \
-        -filter:v "fps=20,scale=iw/2:ih/2:flags=lanczos" \
+        -vf "fps=20,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos" \
         -crf 23 \
         -vcodec libx264 -preset slow -profile:v main -pix_fmt yuv420p \
         -c:a aac -ac 1 -b:a 64k \
@@ -169,7 +209,7 @@ for FILE in "$TEMP_DIR"/*; do
         -threads 4 \
         -map_metadata -1 \
         -max_muxing_queue_size 512 \
-        -filter:v "fps=2,crop=iw:ih-0:0:0,scale=iw/1:-2" \
+        -vf "fps=2,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos" \
         -crf 30 -r 2 \
         -vcodec libx264 -preset faster -profile:v main -pix_fmt yuv420p \
         -c:a aac -ac 1 -b:a 64k \
@@ -180,19 +220,34 @@ for FILE in "$TEMP_DIR"/*; do
     # === Encode 3: Slides x2 ===
     TYPE="02_slides_half"
     mkdir -p "$BASE_DIR/$TYPE/"
-    OUTPUT_PATH="$BASE_DIR/$TYPE/$OUTPUT_NAME"
+    OUTPUT_PATH="$BASE_DIR/$TYPE/$OUTPUT_NAME"    
     "$FFMPEG" -y -i "$FILE" \
         -hide_banner -nostats -loglevel error \
         -threads 4 \
         -map_metadata -1 \
         -max_muxing_queue_size 512 \
-        -filter:v "fps=2,scale=iw/2:ih/2:flags=lanczos" \
+        -vf "fps=2,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos" \
         -crf 30 -r 2 \
         -vcodec libx264 -preset faster -profile:v main -pix_fmt yuv420p \
         -c:a aac -ac 1 -b:a 64k \
         -tune stillimage \
         -movflags +faststart "$OUTPUT_PATH" < /dev/null    
     print_file_info "📦 [Slides, ½ size]" "$OUTPUT_PATH"
+
+     # === Encode 4: Audio (mp3) ===
+    TYPE="04_audio"
+    mkdir -p "$BASE_DIR/$TYPE/"
+    OUTPUT_PATH="$BASE_DIR/$TYPE/$OUTPUT_NAME"    
+    OUTPUT_PATH="$BASE_DIR/$TYPE/${SAFE_NAME}.m4a"
+
+    "$FFMPEG" -y -i "$FILE" \
+        -hide_banner -nostats -loglevel error \
+        -threads 2 \
+        -map_metadata -1 \
+        -vn \
+        -c:a aac -ac 1 -b:a 64k \
+        "$OUTPUT_PATH" < /dev/null
+    print_file_info "🎧 [Audio only]" "$OUTPUT_PATH"
 
 done
 
