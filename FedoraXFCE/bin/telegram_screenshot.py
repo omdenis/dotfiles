@@ -22,7 +22,7 @@ sys.stderr = sys.stdout
 
 load_dotenv(os.path.expanduser("~/.env"))
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-TELEGRAM_ID = 1255315124 # os.getenv("TELEGRAM_ID")
+TELEGRAM_ID = os.getenv("TELEGRAM_ID")
 IMAGE_FILE = Path.home() / "tmp" /"screenshot.png"
 
 CONFIG_PATH = Path.home() / ".config" / "tgsnap"
