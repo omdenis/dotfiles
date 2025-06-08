@@ -84,6 +84,8 @@ merge_media_files() {
         -f concat -safe 0 -i "$TMP_LIST" -c copy "$OUTPUT_FILE"
 
     rm -f "$TMP_LIST"
+
+    print_file_info "📦" "$OUTPUT_FILE"
 }
 
 
@@ -260,8 +262,7 @@ for FILE in "$TEMP_DIR"/*; do
         -c:a aac -ac 1 -b:a 64k \
         -movflags +faststart "$OUTPUT_PATH" < /dev/null    
     print_file_info "📦 [Mobile HQ]" "$OUTPUT_PATH"
-    merge_media_files "$BASE_DIR/$TYPE"
-
+    
     # === Encode 1: Slides full ===
     TYPE="02_slides"
     mkdir -p "$BASE_DIR/$TYPE/"
@@ -278,7 +279,6 @@ for FILE in "$TEMP_DIR"/*; do
         -tune stillimage \
         -movflags +faststart "$OUTPUT_PATH" < /dev/null
     print_file_info "📦 [Slides]" "$OUTPUT_PATH"
-    merge_media_files "$BASE_DIR/$TYPE"
 
     # === Encode 3: Slides x2 ===
     TYPE="02_slides_half"
@@ -296,7 +296,6 @@ for FILE in "$TEMP_DIR"/*; do
         -tune stillimage \
         -movflags +faststart "$OUTPUT_PATH" < /dev/null    
     print_file_info "📦 [Slides, ½ size]" "$OUTPUT_PATH"
-    merge_media_files "$BASE_DIR/$TYPE"
 
      # === Encode 4: Audio (mp3) ===
     TYPE="04_audio"
@@ -312,9 +311,14 @@ for FILE in "$TEMP_DIR"/*; do
         -c:a aac -ac 1 -b:a 64k \
         "$OUTPUT_PATH" < /dev/null
     print_file_info "🎧 [Audio only]" "$OUTPUT_PATH"
-    merge_media_files "$BASE_DIR/$TYPE"
 
 done
+
+merge_media_files "$BASE_DIR/01_downloaded"
+merge_media_files "$BASE_DIR/02_slides"
+merge_media_files "$BASE_DIR/02_slides_half"
+merge_media_files "$BASE_DIR/03_mobile"
+merge_media_files "$BASE_DIR/04_audio"
 
 echo "🎉 All encoding complete! 🎉"
 echo
