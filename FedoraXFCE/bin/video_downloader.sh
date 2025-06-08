@@ -1,20 +1,20 @@
 #!/bin/bash
 
-# Пути
+# Paths
 BASE_DIR="$HOME/video"
 INPUT_FILE="$BASE_DIR/files.txt"
 TEMP_DIR="$BASE_DIR/01_downloaded"
 SLIDES_DIR="$BASE_DIR/02_slides"
 FFMPEG="$HOME/apps/ffmpeg/ffmpeg"
 
-# Создание каталогов и файла
+# Create directories and input file if they don't exist
 mkdir -p "$TEMP_DIR" "$SLIDES_DIR"
 touch "$INPUT_FILE"
 
-echo "📁 Рабочие директории:"
-echo " - Скачанные: $TEMP_DIR"
-echo " - Пережатые: $SLIDES_DIR"
-echo " - Файл со ссылками: $INPUT_FILE"
+echo "📁 Working directories:"
+echo " - Downloads: $TEMP_DIR"
+echo " - Encoded slides: $SLIDES_DIR"
+echo " - URL list file: $INPUT_FILE"
 echo
 
 COUNTER=1
@@ -24,39 +24,38 @@ pad_number() {
 }
 
 while IFS= read -r url || [[ -n "$url" ]]; do
-    url="$(echo "$url" | xargs)"  # очистить от пробелов
-    [[ -z "$url" || "$url" =~ ^# ]] && continue
+    url="$(echo "$url" | xargs)"  # trim leading/trailing whitespace
+    [[ -z "$url" || "$url" =~ ^# ]] && continue  # skip empty lines or comments
 
-    echo "➡️ Обрабатываем: $url"
+    echo "➡️ Processing: $url"
 
     NUM=$(pad_number "$COUNTER")
     FILENAME=""
     SAFE_NAME=""
 
     if [[ "$url" =~ "youtube.com" || "$url" =~ "youtu.be" ]]; then
-        echo "YouTube → yt-dlp"
+        echo "🎥 YouTube → yt-dlp"
         yt_id=$(yt-dlp --get-id "$url")
         SAFE_NAME="${yt_id}"
-        yt-dlp -S "res:1080,fps" -o "$TEMP_DIR/${NUM}_${SAFE_NAME}.%(ext)s" "$url" 
+        yt-dlp -S "res:1080,fps" -o "$TEMP_DIR/${NUM}_${SAFE_NAME}.%(ext)s" "$url"
         FILENAME=$(ls -t "$TEMP_DIR/${NUM}_${SAFE_NAME}."* | head -n1)
 
     elif [[ "$url" == *.m3u8 ]]; then
-        echo ".m3u8 → ffmpeg"
+        echo "🌐 .m3u8 → ffmpeg"
         base=$(basename "$url")
         SAFE_NAME="${base%%.*}"
         FILENAME="$TEMP_DIR/${NUM}_${SAFE_NAME}.ts"
         ${FFMPEG} -y -i "$url" -c copy "${NUM}_$FILENAME"
 
     else
-        echo "⚠️ Неизвестный формат URL: $url"
+        echo "⚠️ Unsupported URL format: $url"
         continue
     fi
 
     OUTPUT_NAME="${NUM}_${SAFE_NAME}.mp4"
     OUTPUT_PATH="$SLIDES_DIR/$OUTPUT_NAME"
 
-    echo "📦 Перекодируем для Telegram..."
-    # -presset veryslow
+    echo "📦 Re-encoding for Telegram..."
     "$FFMPEG" -y -i "$FILENAME" \
         -hide_banner \
         -loglevel error \
@@ -71,15 +70,15 @@ while IFS= read -r url || [[ -n "$url" ]]; do
         -pix_fmt yuv420p \
         -c:a aac -b:a 64k -ac 1 \
         -tune stillimage \
-        -preset faster \ 
+        -preset faster \
         -movflags +faststart \
         "$OUTPUT_PATH" < /dev/null
 
-    echo "✅ Сохранено: $OUTPUT_PATH"
+    echo "✅ Saved: $OUTPUT_PATH"
     echo
 
     ((COUNTER++))
 
 done < "$INPUT_FILE"
 
-echo "🎉 Всё завершено! Пережатые файлы ждут в '$SLIDES_DIR'."
+echo "🎉 All done! Encoded videos are in '$SLIDES_DIR'."

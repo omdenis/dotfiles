@@ -3,99 +3,136 @@ import subprocess
 from pathlib import Path
 from yt_dlp import YoutubeDL
 
-# === Конфигурация ===
+# === Paths ===
 BASE_DIR = Path.home() / "video"
 INPUT_FILE = BASE_DIR / "files.txt"
 TEMP_DIR = BASE_DIR / "01_downloaded"
 SLIDES_DIR = BASE_DIR / "02_slides"
-FFMPEG_PATH = str(Path.home() / "apps/ffmpeg/ffmpeg")  
+FFMPEG = Path.home() / "apps/ffmpeg/ffmpeg"
 
-# === Инициализация директорий ===
-for directory in [TEMP_DIR, SLIDES_DIR]:
-    directory.mkdir(parents=True, exist_ok=True)
+# === Init directories ===
+TEMP_DIR.mkdir(parents=True, exist_ok=True)
+SLIDES_DIR.mkdir(parents=True, exist_ok=True)
 INPUT_FILE.touch()
 
-print(f"📁 Рабочие директории:\n - Скачанные: {TEMP_DIR}\n - Пережатые: {SLIDES_DIR}\n - Файл со ссылками: {INPUT_FILE}\n")
+print("📁 Working directories:")
+print(f" - Downloads: {TEMP_DIR}")
+print(f" - Encoded slides: {SLIDES_DIR}")
+print(f" - URL list file: {INPUT_FILE}")
+print()
 
-# === Сквозная нумерация ===
+# === Format number with leading zeroes ===
 def pad_number(n):
     return f"{n:03d}"
 
-# === yt-dlp настройки ===
-yt_opts = {
-    "format": "bv*+ba/b",
-    "quiet": True,
-    "no_warnings": True,
-    "outtmpl": str(TEMP_DIR / "%(filename)s"),
-    "noplaylist": True,
-}
-
-def download_youtube(url, number):
-    with YoutubeDL(yt_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-        video_id = info.get("id")
-        filename_template = f"{pad_number(number)}_{video_id}.%(ext)s"
-        yt_opts["outtmpl"] = str(TEMP_DIR / filename_template)
-        ydl.params.update(yt_opts)
-        ydl.download([url])
-        return video_id, TEMP_DIR / f"{pad_number(number)}_{video_id}.{info.get('ext', 'mp4')}"
-
-def download_m3u8(url, number):
-    name = Path(url).stem
-    out_file = TEMP_DIR / f"{pad_number(number)}_{name}.ts"
-    cmd = [
-        FFMPEG_PATH,
-        "-hide_banner", "-y",
-        "-i", url,
-        "-c", "copy",
-        str(out_file)
-    ]
-    subprocess.run(cmd, stdin=subprocess.DEVNULL)
-    return name, out_file
-
-def reencode_to_telegram(input_path, output_path):
-    cmd = [
-        FFMPEG_PATH,
-        "-hide_banner", "-y",
-        "-i", str(input_path),
-        "-c:v", "libx264",
-        "-preset", "veryslow",
-        "-crf", "28",
-        "-g", "300",
-        "-keyint_min", "300",
-        "-c:a", "aac",
-        "-b:a", "128k",
-        "-movflags", "+faststart",
-        str(output_path)
-    ]
-    subprocess.run(cmd, stdin=subprocess.DEVNULL)
-
-# === Основной цикл ===
-with INPUT_FILE.open("r") as f:
+# === Start processing ===
+with INPUT_FILE.open("r", encoding="utf-8") as f:
     counter = 1
-    for line in f:
-        url = line.strip()
+    for raw_url in f:
+        url = raw_url.strip()
         if not url or url.startswith("#"):
             continue
 
-        print(f"➡️ Обрабатываем: {url}")
-        try:
-            if "youtube.com" in url or "youtu.be" in url:
-                name, source_file = download_youtube(url, counter)
-            elif url.endswith(".m3u8"):
-                name, source_file = download_m3u8(url, counter)
-            else:
-                print(f"⚠️ Неизвестный формат URL: {url}")
+        print(f"➡️ Processing: {url}")
+
+        num = pad_number(counter)
+        filename = ""
+        safe_name = ""
+
+        # === YouTube handling ===
+        if "youtube.com" in url or "youtu.be" in url:
+            print("🎥 YouTube → yt-dlp")
+            try:
+                yt_id = subprocess.check_output(
+                    ["yt-dlp", "--get-id", url], text=True
+                ).strip()
+            except subprocess.CalledProcessError as e:
+                print(f"❌ Failed to get YouTube ID: {e}")
                 continue
 
-            output_file = SLIDES_DIR / f"{pad_number(counter)}_{name}.mp4"
-            print(f"📦 Перекодируем: {output_file.name}")
-            reencode_to_telegram(source_file, output_file)
-            print(f"✅ Готово: {output_file}\n")
-            counter += 1
+            safe_name = yt_id
+            output_template = f"{num}_{safe_name}.%(ext)s"
+            ydl_opts = {
+                "outtmpl": str(TEMP_DIR / output_template),
+                "format": "bv*+ba/b",
+                "noplaylist": True,
+                "quiet": True,
+                "no_warnings": True,
+                "source_address": "0.0.0.0",
+            }
 
-        except Exception as e:
-            print(f"❌ Ошибка обработки {url}: {e}")
+            try:
+                with YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([url])
+            except Exception as e:
+                print(f"❌ Download failed: {e}")
+                continue
 
-print(f"🎉 Всё завершено! Готовые видео в: {SLIDES_DIR}")
+            # Find the downloaded file
+            possible_files = list(TEMP_DIR.glob(f"{num}_{safe_name}.*"))
+            if not possible_files:
+                print("❌ Downloaded file not found.")
+                continue
 
+            filename = str(sorted(possible_files, key=os.path.getmtime)[-1])
+
+        # === m3u8 handling ===
+        elif url.endswith(".m3u8"):
+            print("🌐 .m3u8 → ffmpeg")
+            base = Path(url).stem
+            safe_name = base
+            filename = TEMP_DIR / f"{num}_{safe_name}.ts"
+
+            try:
+                subprocess.run(
+                    [str(FFMPEG), "-y", "-i", url, "-c", "copy", str(filename)],
+                    check=True,
+                    stdin=subprocess.DEVNULL
+                )
+            except subprocess.CalledProcessError as e:
+                print(f"❌ m3u8 download error: {e}")
+                continue
+
+        else:
+            print(f"⚠️ Unsupported URL format: {url}")
+            continue
+
+        # === Re-encode ===
+        output_name = f"{num}_{safe_name}.mp4"
+        output_path = SLIDES_DIR / output_name
+
+        print(f"📦 Re-encoding for Telegram: {output_name}")
+        ffmpeg_cmd = [
+            str(FFMPEG),
+            "-y",
+            "-i", str(filename),
+            "-hide_banner",
+            "-loglevel", "error",
+            "-threads", "4",
+            "-map_metadata", "-1",
+            "-max_muxing_queue_size", "512",
+            "-filter:v", "fps=2,crop=iw:ih-0:0:0,scale=iw/1:-2",
+            "-crf", "30",
+            "-r", "2",
+            "-vcodec", "libx264",
+            "-profile:v", "main",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "64k",
+            "-ac", "1",
+            "-tune", "stillimage",
+            "-preset", "faster",
+            "-movflags", "+faststart",
+            str(output_path)
+        ]
+
+        try:
+            subprocess.run(ffmpeg_cmd, check=True, stdin=subprocess.DEVNULL)
+            print(f"✅ Saved: {output_path}\n")
+        except subprocess.CalledProcessError as e:
+            print(f"❌ ffmpeg error: {e}")
+            continue
+
+        counter += 1
+
+print(f"🎉 All done! Encoded videos are in '{SLIDES_DIR}'.")
