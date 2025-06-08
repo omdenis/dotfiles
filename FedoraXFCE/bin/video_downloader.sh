@@ -20,7 +20,8 @@ pad_number() {
 }
 
 print_file_info() {
-    local file="$1"
+    local format="$1"
+    local file="$2"
 
     # === File size ===
     filesize_bytes=$(stat -c%s "$file" 2>/dev/null)
@@ -81,11 +82,12 @@ print_file_info() {
     esac
 
     # === Output ===
+    echo
+    echo "$format ${filesize_mb} MB "
     echo "$OUTPUT_PATH"
     echo "Video: $vcodec, ${width}x${height}, fps=${fps_val}, ${vbitrate_kbps} kbps"
     echo "Audio: $acodec, $achan, ${arate} Hz, ${abitrate_kbps} kbps"
     echo "Duration: $duration_fmt (${duration}s)"
-    echo "File size: ${filesize_mb} MB"
     echo
 }
 
@@ -140,15 +142,12 @@ for FILE in "$TEMP_DIR"/*; do
     SAFE_NAME="${SAFE_NAME%.*}"
     OUTPUT_NAME="${SAFE_NAME}.mp4"
 
-    echo
-    echo "📌 [ORIGINAL]"
-    print_file_info "$FILE"    
+    print_file_info "📌 [ORIGINAL]" "$FILE"    
 
     # === Encode 2: Mobile HQ ===
     TYPE="03_mobile"
     mkdir -p "$BASE_DIR/$TYPE/"
     OUTPUT_PATH="$BASE_DIR/$TYPE/$OUTPUT_NAME"
-    echo "📦 [Mobile HQ]"
     "$FFMPEG" -y -i "$FILE" \
         -hide_banner -nostats -loglevel error \
         -threads 4 \
@@ -159,13 +158,12 @@ for FILE in "$TEMP_DIR"/*; do
         -vcodec libx264 -preset slow -profile:v main -pix_fmt yuv420p \
         -c:a aac -ac 1 -b:a 64k \
         -movflags +faststart "$OUTPUT_PATH" < /dev/null    
-    print_file_info "$OUTPUT_PATH"
+    print_file_info "📦 [Mobile HQ]" "$OUTPUT_PATH"
 
     # === Encode 1: Slides full ===
     TYPE="02_slides"
     mkdir -p "$BASE_DIR/$TYPE/"
     OUTPUT_PATH="$BASE_DIR/$TYPE/$OUTPUT_NAME"
-    echo "📦 [Slides]"
     "$FFMPEG" -y -i "$FILE" \
         -hide_banner -nostats -loglevel error \
         -threads 4 \
@@ -177,13 +175,12 @@ for FILE in "$TEMP_DIR"/*; do
         -c:a aac -ac 1 -b:a 64k \
         -tune stillimage \
         -movflags +faststart "$OUTPUT_PATH" < /dev/null
-    print_file_info "$OUTPUT_PATH"        
+    print_file_info "📦 [Slides]" "$OUTPUT_PATH"
 
     # === Encode 3: Slides x2 ===
     TYPE="02_slides_half"
     mkdir -p "$BASE_DIR/$TYPE/"
     OUTPUT_PATH="$BASE_DIR/$TYPE/$OUTPUT_NAME"
-    echo "📦 [Slides, ½ size]"
     "$FFMPEG" -y -i "$FILE" \
         -hide_banner -nostats -loglevel error \
         -threads 4 \
@@ -195,9 +192,8 @@ for FILE in "$TEMP_DIR"/*; do
         -c:a aac -ac 1 -b:a 64k \
         -tune stillimage \
         -movflags +faststart "$OUTPUT_PATH" < /dev/null    
-    print_file_info "$OUTPUT_PATH"
+    print_file_info "📦 [Slides, ½ size]" "$OUTPUT_PATH"
 
-    ((COUNTER++))
 done
 
 echo "🎉 All encoding complete! 🎉"
