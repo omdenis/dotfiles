@@ -5,7 +5,7 @@ BASE_DIR="$HOME/video"
 INPUT_FILE="$BASE_DIR/files.txt"
 TEMP_DIR="$BASE_DIR/01_downloaded"
 SLIDES_DIR="$BASE_DIR/02_slides"
-FFMPEG="$HOME/apps/ffmpeg-*-static/ffmpeg"
+FFMPEG="$HOME/apps/ffmpeg/ffmpeg"
 
 # Создание каталогов и файла
 mkdir -p "$TEMP_DIR" "$SLIDES_DIR"
@@ -56,9 +56,24 @@ while IFS= read -r url || [[ -n "$url" ]]; do
     OUTPUT_PATH="$SLIDES_DIR/$OUTPUT_NAME"
 
     echo "📦 Перекодируем для Telegram..."
-    # ${FFMPEG} -hide_banner -y -i "$FILENAME" \
-    #     -c:v libx264 -preset veryslow -crf 28 -g 300 -keyint_min 300 \
-    #     -c:a aac -b:a 128k -movflags +faststart "$OUTPUT_PATH"
+    # -presset veryslow
+    "$FFMPEG" -y -i "$FILENAME" \
+        -hide_banner \
+        -loglevel error \
+        -threads 4 \
+        -map_metadata -1 \
+        -max_muxing_queue_size 512 \
+        -filter:v "fps=2,crop=iw:ih-0:0:0,scale=iw/1:-2" \
+        -crf 30 \
+        -r 2 \
+        -vcodec libx264 \
+        -profile:v main \
+        -pix_fmt yuv420p \
+        -c:a aac -b:a 64k -ac 1 \
+        -tune stillimage \
+        -preset faster \ 
+        -movflags +faststart \
+        "$OUTPUT_PATH" < /dev/null
 
     echo "✅ Сохранено: $OUTPUT_PATH"
     echo
@@ -67,4 +82,4 @@ while IFS= read -r url || [[ -n "$url" ]]; do
 
 done < "$INPUT_FILE"
 
-echo "🎉 Всё завершено! Пережатые файлы ждут в '$OUTPUT_DIR'."
+echo "🎉 Всё завершено! Пережатые файлы ждут в '$SLIDES_DIR'."
