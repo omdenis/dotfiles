@@ -40,6 +40,53 @@ get_safe_name_from_url() {
     echo "$name"
 }
 
+merge_media_files() {
+    local DIR="$1"
+    local FFMPEG="$HOME/apps/ffmpeg/ffmpeg"
+
+    [[ ! -d "$DIR" ]] && echo "❌ Directory does not exist: $DIR" && return 1
+
+    local BASENAME=$(basename "$DIR")
+    local PARENT=$(dirname "$DIR")
+    local OUTPUT_FILE
+    local TMP_LIST="$DIR/concat_list.txt"
+    mkdir -p "$PARENT/result"
+
+    local TYPE=""
+    local FIRST_FILE=$(find "$DIR" -type f \( -iname "*.mp4" -o -iname "*.mov" -o -iname "*.mkv" -o -iname "*.ts" -o -iname "*.m4a" -o -iname "*.mp3" \) | head -n 1)
+
+    [[ -z "$FIRST_FILE" ]] && echo "⚠️ No supported media files found." && return 1
+
+    local EXT="${FIRST_FILE##*.}"
+    case "$EXT" in
+        mp4|mov|mkv|ts)
+            TYPE="video"
+            OUTPUT_FILE="$PARENT/result/${BASENAME}_joined.mp4"
+            ;;
+        m4a|mp3)
+            TYPE="audio"
+            OUTPUT_FILE="$PARENT/result/${BASENAME}_joined.${EXT}"
+            ;;
+        *)
+            echo "⚠️ Unsupported file type: $EXT"
+            return 1
+            ;;
+    esac
+
+    > "$TMP_LIST"
+    find "$DIR" -type f -iname "*.${EXT}" | sort | while read -r f; do
+        echo "file '$f'" >> "$TMP_LIST"
+    done
+
+    [[ ! -s "$TMP_LIST" ]] && echo "⚠️ Nothing to merge." && return 1
+
+    "$FFMPEG" -y -hide_banner -loglevel error \
+        -f concat -safe 0 -i "$TMP_LIST" -c copy "$OUTPUT_FILE"
+
+    rm -f "$TMP_LIST"
+}
+
+
 validate_file() {
     local file="$1"
 
@@ -63,25 +110,35 @@ print_file_info() {
     local format="$1"
     local file="$2"
 
+    # === MEDIA TYPE: audio-only?
+    ext=$(basename "$file" | awk -F. '{print tolower($NF)}')
+    if [[ "$ext" == "mp3" || "$ext" == "m4a" || "$ext" == "aac" || "$ext" == "flac" || "$ext" == "wav" ]]; then
+        is_audio_only=true
+    else
+        is_audio_only=false
+    fi
+    
     # === File size ===
     filesize_bytes=$(stat -c%s "$file" 2>/dev/null)
     filesize_mb=$(awk "BEGIN {printf \"%.1f\", $filesize_bytes / 1024 / 1024}")
 
     # === VIDEO ===
-    vcodec=$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_name \
-        -of default=noprint_wrappers=1:nokey=1 "$file")
+    if ! $is_audio_only; then
+        vcodec=$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_name \
+            -of default=noprint_wrappers=1:nokey=1 "$file")
 
-    width=$(ffprobe -v error -select_streams v:0 -show_entries stream=width \
-        -of default=noprint_wrappers=1:nokey=1 "$file")
+        width=$(ffprobe -v error -select_streams v:0 -show_entries stream=width \
+            -of default=noprint_wrappers=1:nokey=1 "$file")
 
-    height=$(ffprobe -v error -select_streams v:0 -show_entries stream=height \
-        -of default=noprint_wrappers=1:nokey=1 "$file")
+        height=$(ffprobe -v error -select_streams v:0 -show_entries stream=height \
+            -of default=noprint_wrappers=1:nokey=1 "$file")
 
-    fps_raw=$(ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate \
-        -of default=noprint_wrappers=1:nokey=1 "$file")
+        fps_raw=$(ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate \
+            -of default=noprint_wrappers=1:nokey=1 "$file")
 
-    vbitrate=$(ffprobe -v error -select_streams v:0 -show_entries stream=bit_rate \
-        -of default=noprint_wrappers=1:nokey=1 "$file")
+        vbitrate=$(ffprobe -v error -select_streams v:0 -show_entries stream=bit_rate \
+            -of default=noprint_wrappers=1:nokey=1 "$file")
+    fi
 
     # === AUDIO ===
     acodec=$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_name \
@@ -112,7 +169,9 @@ print_file_info() {
         fps_val=$(awk "BEGIN {printf \"%.2f\", $num/$den}")
     fi
 
-    [[ "$vbitrate" =~ ^[0-9]+$ ]] && vbitrate_kbps=$((vbitrate / 1000)) || vbitrate_kbps="?"
+    if ! $is_audio_only; then
+        [[ "$vbitrate" =~ ^[0-9]+$ ]] && vbitrate_kbps=$((vbitrate / 1000)) || vbitrate_kbps="?"
+    fi
     [[ "$abitrate" =~ ^[0-9]+$ ]] && abitrate_kbps=$((abitrate / 1000)) || abitrate_kbps="?"
 
     case "$channels" in
@@ -125,7 +184,9 @@ print_file_info() {
     echo
     echo "$format ${filesize_mb} MB "
     echo "$OUTPUT_PATH"
-    echo "Video: $vcodec, ${width}x${height}, fps=${fps_val}, ${vbitrate_kbps} kbps"
+    if ! $is_audio_only; then
+        echo "Video: $vcodec, ${width}x${height}, fps=${fps_val}, ${vbitrate_kbps} kbps"
+    fi
     echo "Audio: $acodec, $achan, ${arate} Hz, ${abitrate_kbps} kbps"
     echo "Duration: $duration_fmt (${duration}s)"
     echo
@@ -199,6 +260,7 @@ for FILE in "$TEMP_DIR"/*; do
         -c:a aac -ac 1 -b:a 64k \
         -movflags +faststart "$OUTPUT_PATH" < /dev/null    
     print_file_info "📦 [Mobile HQ]" "$OUTPUT_PATH"
+    merge_media_files "$BASE_DIR/$TYPE"
 
     # === Encode 1: Slides full ===
     TYPE="02_slides"
@@ -216,6 +278,7 @@ for FILE in "$TEMP_DIR"/*; do
         -tune stillimage \
         -movflags +faststart "$OUTPUT_PATH" < /dev/null
     print_file_info "📦 [Slides]" "$OUTPUT_PATH"
+    merge_media_files "$BASE_DIR/$TYPE"
 
     # === Encode 3: Slides x2 ===
     TYPE="02_slides_half"
@@ -233,6 +296,7 @@ for FILE in "$TEMP_DIR"/*; do
         -tune stillimage \
         -movflags +faststart "$OUTPUT_PATH" < /dev/null    
     print_file_info "📦 [Slides, ½ size]" "$OUTPUT_PATH"
+    merge_media_files "$BASE_DIR/$TYPE"
 
      # === Encode 4: Audio (mp3) ===
     TYPE="04_audio"
@@ -248,6 +312,7 @@ for FILE in "$TEMP_DIR"/*; do
         -c:a aac -ac 1 -b:a 64k \
         "$OUTPUT_PATH" < /dev/null
     print_file_info "🎧 [Audio only]" "$OUTPUT_PATH"
+    merge_media_files "$BASE_DIR/$TYPE"
 
 done
 
