@@ -22,6 +22,10 @@ pad_number() {
 print_file_info() {
     local file="$1"
 
+    # === File size ===
+    filesize_bytes=$(stat -c%s "$file" 2>/dev/null)
+    filesize_mb=$(awk "BEGIN {printf \"%.1f\", $filesize_bytes / 1024 / 1024}")
+
     # === VIDEO ===
     vcodec=$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_name \
         -of default=noprint_wrappers=1:nokey=1 "$file")
@@ -81,6 +85,7 @@ print_file_info() {
     echo "Video: $vcodec, ${width}x${height}, fps=${fps_val}, ${vbitrate_kbps} kbps"
     echo "Audio: $acodec, $achan, ${arate} Hz, ${abitrate_kbps} kbps"
     echo "Duration: $duration_fmt (${duration}s)"
+    echo "File size: ${filesize_mb} MB"
     echo
 }
 
@@ -127,6 +132,7 @@ echo
 
 # === STEP 2: ENCODE ===
 echo "🎬 Step 2: Encoding all downloaded files..."
+echo
 for FILE in "$TEMP_DIR"/*; do
     [[ ! -f "$FILE" ]] && continue
 
@@ -134,8 +140,26 @@ for FILE in "$TEMP_DIR"/*; do
     SAFE_NAME="${SAFE_NAME%.*}"
     OUTPUT_NAME="${SAFE_NAME}.mp4"
 
+    echo
     echo "📌 [ORIGINAL]"
     print_file_info "$FILE"    
+
+    # === Encode 2: Mobile HQ ===
+    TYPE="03_mobile"
+    mkdir -p "$BASE_DIR/$TYPE/"
+    OUTPUT_PATH="$BASE_DIR/$TYPE/$OUTPUT_NAME"
+    echo "📦 [Mobile HQ]"
+    "$FFMPEG" -y -i "$FILE" \
+        -hide_banner -nostats -loglevel error \
+        -threads 4 \
+        -map_metadata -1 \
+        -max_muxing_queue_size 512 \
+        -filter:v "fps=20,scale=iw/2:ih/2:flags=lanczos" \
+        -crf 23 \
+        -vcodec libx264 -preset slow -profile:v main -pix_fmt yuv420p \
+        -c:a aac -ac 1 -b:a 64k \
+        -movflags +faststart "$OUTPUT_PATH" < /dev/null    
+    print_file_info "$OUTPUT_PATH"
 
     # === Encode 1: Slides full ===
     TYPE="02_slides"
@@ -154,23 +178,6 @@ for FILE in "$TEMP_DIR"/*; do
         -tune stillimage \
         -movflags +faststart "$OUTPUT_PATH" < /dev/null
     print_file_info "$OUTPUT_PATH"        
-
-    # === Encode 2: Mobile HQ ===
-    TYPE="03_mobile"
-    mkdir -p "$BASE_DIR/$TYPE/"
-    OUTPUT_PATH="$BASE_DIR/$TYPE/$OUTPUT_NAME"
-    echo "📦 [Mobile HQ]"
-    "$FFMPEG" -y -i "$FILE" \
-        -hide_banner -nostats -loglevel error \
-        -threads 4 \
-        -map_metadata -1 \
-        -max_muxing_queue_size 512 \
-        -filter:v "fps=20,scale=iw/2:ih/2:flags=lanczos" \
-        -crf 23 \
-        -vcodec libx264 -preset slow -profile:v main -pix_fmt yuv420p \
-        -c:a aac -ac 1 -b:a 64k \
-        -movflags +faststart "$OUTPUT_PATH" < /dev/null    
-    print_file_info "$OUTPUT_PATH"
 
     # === Encode 3: Slides x2 ===
     TYPE="02_slides_half"
