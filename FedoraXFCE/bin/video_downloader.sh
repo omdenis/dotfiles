@@ -185,7 +185,7 @@ print_file_info() {
     # === Output ===
     echo
     echo "$format ${filesize_mb} MB "
-    echo "$OUTPUT_PATH"
+    echo "$file"
     if ! $is_audio_only; then
         echo "Video: $vcodec, ${width}x${height}, fps=${fps_val}, ${vbitrate_kbps} kbps"
     fi
