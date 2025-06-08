@@ -256,7 +256,7 @@ for FILE in "$TEMP_DIR"/*; do
         -threads 4 \
         -map_metadata -1 \
         -max_muxing_queue_size 512 \
-        -vf "fps=20,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos" \
+        -vf "fps=20,scale=if(gte(iw\,2)\,iw/2\,iw/2+1):if(gte(ih\,2)\,ih/2\,ih/2+1),scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos" \
         -crf 23 \
         -vcodec libx264 -preset slow -profile:v main -pix_fmt yuv420p \
         -c:a aac -ac 1 -b:a 64k \
@@ -272,7 +272,7 @@ for FILE in "$TEMP_DIR"/*; do
         -threads 4 \
         -map_metadata -1 \
         -max_muxing_queue_size 512 \
-        -vf "fps=2,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos" \
+        -vf "fps=2" \
         -crf 30 -r 2 \
         -vcodec libx264 -preset faster -profile:v main -pix_fmt yuv420p \
         -c:a aac -ac 1 -b:a 64k \
@@ -289,7 +289,7 @@ for FILE in "$TEMP_DIR"/*; do
         -threads 4 \
         -map_metadata -1 \
         -max_muxing_queue_size 512 \
-        -vf "fps=2,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos" \
+        -vf "fps=2,scale=if(gte(iw\,2)\,iw/2\,iw/2+1):if(gte(ih\,2)\,ih/2\,ih/2+1),scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos" \
         -crf 30 -r 2 \
         -vcodec libx264 -preset faster -profile:v main -pix_fmt yuv420p \
         -c:a aac -ac 1 -b:a 64k \
