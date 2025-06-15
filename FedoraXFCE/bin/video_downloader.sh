@@ -50,7 +50,7 @@ merge_media_files() {
     local PARENT=$(dirname "$DIR")
     local OUTPUT_FILE
     local TMP_LIST="$DIR/concat_list.txt"
-    mkdir -p "$PARENT/result"
+    mkdir -p "$PARENT/09_results"
 
     local TYPE=""
     local FIRST_FILE=$(find "$DIR" -type f \( -iname "*.mp4" -o -iname "*.mov" -o -iname "*.mkv" -o -iname "*.ts" -o -iname "*.m4a" -o -iname "*.mp3" \) | head -n 1)
@@ -61,11 +61,11 @@ merge_media_files() {
     case "$EXT" in
         mp4|mov|mkv|ts)
             TYPE="video"
-            OUTPUT_FILE="$PARENT/result/${BASENAME}_joined.mp4"
+            OUTPUT_FILE="$PARENT/09_results/${BASENAME}_joined.mp4"
             ;;
         m4a|mp3)
             TYPE="audio"
-            OUTPUT_FILE="$PARENT/result/${BASENAME}_joined.${EXT}"
+            OUTPUT_FILE="$PARENT/09_results/${BASENAME}_joined.${EXT}"
             ;;
         *)
             echo "⚠️ Unsupported file type: $EXT"
