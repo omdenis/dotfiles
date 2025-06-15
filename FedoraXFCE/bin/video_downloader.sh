@@ -210,7 +210,7 @@ while IFS= read -r url <&3; do
     SAFE_NAME=$(get_safe_name_from_url "$url")
     FILENAME=""
 
-    if [[ "$url" =~ "youtube.com" || "$url" =~ "youtu.be" || "$url" == *playlist* ]]; then
+    if [[ "$url" =~ "youtube.com" || "$url" =~ "youtu.be" || "$url" == *playlist* || "$url" == *mp4* ]]; then
         yt-dlp -S "res:1080,fps" -o "$TEMP_DIR/${NUM}_${SAFE_NAME}.%(ext)s" "$url"
         FILENAME=$(ls -t "$TEMP_DIR/${NUM}_${SAFE_NAME}."* | head -n1)
     elif [[ "$url" == *.m3u8 || "$url" == *".m3u8?"* ]]; then
