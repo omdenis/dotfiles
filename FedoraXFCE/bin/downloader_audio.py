@@ -23,6 +23,7 @@ from datetime import datetime
 # ==== Настройки ====
 INPUT_FILE = Path("./files.txt")
 SRC_DIR = Path("./src")
+RESULT_DIR = Path("./result")
 FFMPEG_PATH = "ffmpeg"    # можно указать полный путь, если не в PATH
 YTDLP_BIN = "yt-dlp"      # можно указать полный путь, если не в PATH
 
@@ -162,7 +163,7 @@ def main():
         if not src.is_file():
             continue
         stem = src.stem
-        out = Path(f"./{stem}.m4a")
+        out = Path(f"./{RESULT_DIR}/{stem}.m4a")
         try:
             transcode_to_m4a(src, out)
             print(f"  ✔ {src.name} → {out.name}")

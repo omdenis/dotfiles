@@ -19,6 +19,7 @@ from datetime import datetime
 # ==== Настройки ====
 INPUT_FILE = Path("./files.txt")
 SRC_DIR = Path("./src")
+RESULT_DIR = Path("./result")
 FFMPEG_PATH = Path("~/apps/ffmpeg/ffmpeg").expanduser()
 YTDLP_BIN = "yt-dlp"
 
@@ -147,8 +148,8 @@ def main():
         if not src.is_file():
             continue
         stem = src.stem
-        out_mp4 = Path(f"./{stem}.mp4")
-        out_m4a = Path(f"./{stem}.m4a")
+        out_mp4 = Path(f"./{RESULT_DIR}/{stem}.mp4")
+        out_m4a = Path(f"./{RESULT_DIR}/{stem}.m4a")
         try:
             encode_mobile_hq(src, out_mp4)
             extract_audio(src, out_m4a)
