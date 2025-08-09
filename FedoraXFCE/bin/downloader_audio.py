@@ -66,21 +66,29 @@ def read_links(path: Path) -> list[str]:
 
 YT_RE = re.compile(r"(youtube\.com|youtu\.be)", re.IGNORECASE)
 
+def safe_filename(s: str) -> str:
+    """Чистим строку для безопасного использования как имени файла."""
+    # Заменяем запрещённые символы на _
+    return re.sub(r'[\\/*?:"<>|]', "_", s)
+
 def safe_name_from_url(url: str) -> str:
-    """Имя файла без расширения. Для YouTube берём id, иначе basename без расширения."""
+    """Имя файла: для YouTube — ID + заголовок, иначе basename."""
     if YT_RE.search(url):
-        # Попробуем взять id через yt-dlp --get-id
-        r = try_run(f'{YTDLP_BIN} --get-id {shlex.quote(url)}')
+        # Получаем ID и заголовок одной командой
+        r = try_run(f'{YTDLP_BIN} --get-id --get-title {shlex.quote(url)}')
         if r.returncode == 0:
-            name = trim(r.stdout)
-            if name:
-                return name
+            lines = [trim(x) for x in r.stdout.splitlines() if trim(x)]
+            if len(lines) >= 2:
+                vid_id, title = lines[0], lines[1]
+                return safe_filename(f"{vid_id}_{title}")
+            elif lines:
+                return safe_filename(lines[0])
     # generic: убираем query и расширение
     clean = url.split("?", 1)[0]
     base = Path(clean).name
     stem = Path(base).stem
     stem = stem or f"item_{int(datetime.now().timestamp()*1000)}"
-    return stem
+    return safe_filename(stem)
 
 def download_one(url: str, dst_dir: Path, stem: str) -> None:
     """
