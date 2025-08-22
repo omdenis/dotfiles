@@ -148,6 +148,7 @@ def main():
         if not src.is_file():
             continue
         stem = src.stem
+        RESULT_DIR.mkdir(parents=True, exist_ok=True)
         out_mp4 = Path(f"./{RESULT_DIR}/{stem}.mp4")
         out_m4a = Path(f"./{RESULT_DIR}/{stem}.m4a")
         try:

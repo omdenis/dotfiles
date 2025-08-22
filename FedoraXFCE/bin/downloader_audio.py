@@ -99,6 +99,7 @@ def download_one(url: str, dst_dir: Path, stem: str) -> None:
     - остальное → yt-dlp (универсально)
     """
     dst_dir.mkdir(parents=True, exist_ok=True)
+    RESULT_DIR.mkdir(parents=True, exist_ok=True)
 
     if url.lower().endswith(".m3u8") or ".m3u8?" in url.lower():
         out = dst_dir / f"{stem}.ts"
