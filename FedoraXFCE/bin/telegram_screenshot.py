@@ -12,6 +12,10 @@ from telegram.ext import Application, MessageHandler, filters, ContextTypes
 from datetime import datetime
 from dotenv import load_dotenv
 
+# how to use
+# python telegram_screenshot.py --init  - and put link to the message in the telegram channel
+# use SHIFT + FN + PRINTSCREEN to take screenshot of the region
+
 # sudo dnf install xfce4-screenshooter xdotool xclip
 
 log_file = Path.home() / "tmp" / "telegram_screenshot.log"
