@@ -132,13 +132,28 @@ def take_screenshot():
 async def send_to_telegram(chat_id, thread_id):
     print("[*] Отправка скрина в Telegram...")    
     with open(IMAGE_FILE, "rb") as img:
-        await bot.send_photo(
+        msg = await bot.send_photo(
             chat_id=chat_id,
             photo=img,
             message_thread_id=thread_id,
-            # caption=f"🖼️ Скриншот {datetime.now().strftime('%H:%M:%S')}" - добавить заголовок текущей закладки приложения
         )
     print("✅ Отправлено!")
+
+    # Генерим ссылку
+    chat_id_str = str(chat_id).replace("-100", "")
+    msg_url = f"https://t.me/c/{chat_id_str}/{thread_id}/{msg.message_id}"
+    print(f"🔗 Ссылка на сообщение: {msg_url}")
+
+    # Копируем в буфер обмена
+    try:
+        subprocess.run(
+            ["xclip", "-selection", "clipboard"],
+            input=msg_url.encode("utf-8"),
+            check=True
+        )
+        print("📋 Ссылка скопирована в буфер!")
+    except Exception as e:
+        print(f"⚠️ Не удалось скопировать в буфер: {e}")
 
 
 def parse_telegram_topic_url():

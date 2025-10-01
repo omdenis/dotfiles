@@ -89,7 +89,7 @@ def download_one(url: str, dst_dir: Path, stem: str) -> None:
 
 def encode_mobile_hq(src_file: Path, out_file: Path) -> None:
     vf = (
-        "fps=20,"
+        "fps=24,"
         "scale=if(gte(iw\\,2)\\,iw/2\\,iw/2+1):if(gte(ih\\,2)\\,ih/2\\,ih/2+1),"
         "scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos"
     )
