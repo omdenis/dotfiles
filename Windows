@@ -1,0 +1,330 @@
+# c:\utils\python\python -m pip install python-telegram-bot==21.6 pillow pyautogui pyperclip python-dotenv
+# C:\Users\<you>\.env
+# py telegram_screenshot_win.py https://t.me/c/2019239319/5563/5565
+# PowerToys → Keyboard Manager: map your favorite chord to run a shortcut (.lnk) that points to py.exe path\to\script.py.
+
+import os
+import re
+import json
+import time
+import asyncio
+import logging
+import traceback
+from io import BytesIO
+from pathlib import Path
+from typing import Optional, Tuple, Dict
+
+from dotenv import load_dotenv
+from PIL import Image, ImageGrab
+import pyperclip
+
+from telegram import Bot
+from telegram.error import RetryAfter, TimedOut, NetworkError
+from telegram.request import HTTPXRequest
+
+# =========================
+# Logging (console + file)
+# =========================
+def setup_logger(log_path: Path, console_level=logging.INFO, file_level=logging.DEBUG) -> logging.Logger:
+    logger = logging.getLogger("tgsnap")
+    logger.setLevel(min(console_level, file_level))
+    logger.handlers.clear()
+
+    fmt_console = logging.Formatter("[%(asctime)s] %(levelname)s: %(message)s", datefmt="%H:%M:%S")
+    fmt_file = logging.Formatter("[%(asctime)s] %(levelname)s %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+
+    ch = logging.StreamHandler()
+    ch.setLevel(console_level)
+    ch.setFormatter(fmt_console)
+
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    fh = logging.FileHandler(log_path, encoding="utf-8")
+    fh.setLevel(file_level)
+    fh.setFormatter(fmt_file)
+
+    logger.addHandler(ch)
+    logger.addHandler(fh)
+    return logger
+
+HOME = Path.home()
+LOG_FILE = HOME / "tmp" / "telegram_screenshot.log"
+logger = setup_logger(LOG_FILE)
+
+# =========================
+# Paths / config
+# =========================
+CONFIG_PATH = HOME / ".config" / "tgsnap"
+CONFIG_FILE = CONFIG_PATH / "config.json"
+IMAGE_FILE = HOME / "tmp" / "screenshot.png"
+
+# =========================
+# Env & bot (bigger pool)
+# =========================
+load_dotenv(os.path.expanduser("~/.env"))
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    logger.critical("BOT_TOKEN missing in ~/.env")
+    raise SystemExit(1)
+
+request = HTTPXRequest(
+    connection_pool_size=20,
+    connect_timeout=15.0,
+    read_timeout=60.0,
+    write_timeout=60.0,
+    pool_timeout=15.0,
+)
+bot = Bot(token=BOT_TOKEN, request=request)
+
+SEND_LOCK = asyncio.Lock()
+
+# =========================
+# Helpers
+# =========================
+URL_RE = re.compile(r"^https://t\.me/c/(-?\d+)/(\d+)(?:/\d+)?/?$")
+
+def parse_telegram_topic_url(url: str) -> Tuple[int, int]:
+    m = URL_RE.match(url.strip())
+    if not m:
+        raise ValueError("Invalid URL. Example: https://t.me/c/2019239319/5563/5565")
+    chat_id = int(f"-100{m.group(1)}")
+    thread_id = int(m.group(2))
+    return chat_id, thread_id
+
+def save_config(chat_id: int, thread_id: int) -> None:
+    CONFIG_PATH.mkdir(parents=True, exist_ok=True)
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump({"chat_id": chat_id, "thread_id": thread_id}, f, indent=2)
+    logger.info("Saved config -> chat=%s thread=%s (%s)", chat_id, thread_id, CONFIG_FILE)
+
+def load_config() -> Tuple[int, int]:
+    if not CONFIG_FILE.exists():
+        raise FileNotFoundError("Config not found.")
+    with open(CONFIG_FILE, encoding="utf-8") as f:
+        data = json.load(f)
+    return int(data["chat_id"]), int(data["thread_id"])
+
+def get_clipboard_text() -> Optional[str]:
+    try:
+        return pyperclip.paste()
+    except Exception as e:
+        logger.warning("Clipboard text read failed: %s", e)
+        return None
+
+def get_clipboard_image() -> Optional[Image.Image]:
+    """
+    Returns PIL.Image if clipboard holds an image (bitmap or file list), else None.
+    """
+    try:
+        clip = ImageGrab.grabclipboard()
+        if isinstance(clip, Image.Image):
+            return clip
+        if isinstance(clip, list) and clip:
+            for item in clip:
+                p = Path(item)
+                if p.exists() and p.is_file() and p.suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp"}:
+                    try:
+                        return Image.open(p).convert("RGBA")
+                    except Exception as e:
+                        logger.warning("Failed to open clipboard image file %s: %s", p, e)
+    except Exception as e:
+        logger.warning("Clipboard image read failed: %s", e)
+    return None
+
+def image_signature(img: Image.Image) -> str:
+    """Hash the PNG bytes to identify the same image across polls."""
+    try:
+        buf = BytesIO()
+        img.save(buf, format="PNG")
+        data = buf.getvalue()
+        return str(hash(data))
+    except Exception as e:
+        logger.warning("Failed to hash image: %s", e)
+        return f"sig-{time.time()}"
+
+def msg_url_for(chat_id: int, thread_id: int, message_id: int) -> str:
+    chat_id_str = str(chat_id).replace("-100", "")
+    return f"https://t.me/c/{chat_id_str}/{thread_id}/{message_id}"
+
+# =========================
+# Telegram send helpers (retries)
+# =========================
+async def _with_retries(coro_factory, what: str, max_retries: int = 5) -> any:
+    delay = 1.0
+    for attempt in range(1, max_retries + 1):
+        try:
+            async with SEND_LOCK:
+                return await coro_factory()
+        except RetryAfter as e:
+            wait = getattr(e, "retry_after", delay)
+            logger.warning("%s: RetryAfter; wait=%ss (attempt %s/%s)", what, wait, attempt, max_retries)
+            await asyncio.sleep(float(wait))
+        except (TimedOut, NetworkError) as e:
+            logger.warning("%s: transient error (%s). attempt %s/%s; backoff %.1fs", what, e, attempt, max_retries, delay)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 10.0)
+        except Exception as e:
+            msg = str(e)
+            if "Pool timeout" in msg or "connection pool" in msg:
+                logger.warning("%s: pool issue. attempt %s/%s; backoff %.1fs", what, attempt, max_retries, delay)
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 10.0)
+            else:
+                logger.error("%s: fatal error: %s", what, e)
+                logger.debug("Trace:\n%s", traceback.format_exc())
+                raise
+    raise RuntimeError(f"{what}: exhausted retries")
+
+async def post_pin(chat_id: int, thread_id: int) -> str:
+    async def _send():
+        msg = await bot.send_message(chat_id=chat_id, text="📌", message_thread_id=thread_id)
+        return msg_url_for(chat_id, thread_id, msg.message_id)
+    url = await _with_retries(_send, "post_pin")
+    logger.info("Posted 📌 -> %s (chat=%s thread=%s)", url, chat_id, thread_id)
+    return url
+
+async def send_image(chat_id: int, thread_id: int, image_path: Path) -> str:
+    async def _send():
+        with open(image_path, "rb") as img:
+            msg = await bot.send_photo(chat_id=chat_id, photo=img, message_thread_id=thread_id)
+        return msg_url_for(chat_id, thread_id, msg.message_id)
+    url = await _with_retries(_send, "send_image")
+    logger.info("Image sent -> %s (chat=%s thread=%s)", url, chat_id, thread_id)
+    return url
+
+# =========================
+# Async watcher loop (edge-trigger + once-per-image)
+# =========================
+async def async_main():
+    logger.info("=== Telegram screenshot watcher started (edge-trigger) ===")
+    logger.info("Log file: %s", LOG_FILE)
+
+    # Load existing config (optional)
+    chat_id: Optional[int] = None
+    thread_id: Optional[int] = None
+    try:
+        chat_id, thread_id = load_config()
+        logger.info("Loaded config: chat=%s thread=%s", chat_id, thread_id)
+    except Exception as e:
+        logger.info("No config yet (%s). Copy a Telegram topic URL to clipboard to configure.", e)
+
+    last_text_seen = None
+    last_clip_had_image = False     # <- edge trigger: react only when this flips False -> True
+    processed_sigs: Dict[str, float] = {}  # sig -> timestamp (for TTL)
+    PROCESSED_TTL = 300.0           # 5 minutes TTL to keep memory tiny
+
+    last_config_change_at = 0.0
+    CONFIG_DEBOUNCE_SEC = 1.0
+
+    LOOP_SLEEP_SEC = 0.25
+    HEARTBEAT_SEC = 1.0
+    spinner = "|/-\\"
+    spin_i = 0
+    last_heartbeat = 0.0
+
+    logger.info("Watching clipboard... (press Ctrl+C to stop)")
+
+    while True:
+        now = time.time()
+
+        # Heartbeat
+        if now - last_heartbeat >= HEARTBEAT_SEC:
+            status = f"cfg={'unset' if chat_id is None else f'{chat_id}/{thread_id}'}"
+            logger.info("tick %s ... watching ( %s )", spinner[spin_i % len(spinner)], status)
+            spin_i += 1
+            last_heartbeat = now
+
+        # GC processed signatures
+        if processed_sigs:
+            before = len(processed_sigs)
+            processed_sigs = {s:t for s,t in processed_sigs.items() if now - t < PROCESSED_TTL}
+            after = len(processed_sigs)
+            if before != after:
+                logger.debug("Trimmed processed signatures: %s -> %s", before, after)
+
+        # 1) Clipboard TEXT → potential reconfigure
+        txt = get_clipboard_text()
+        if txt is not None and txt != last_text_seen:
+            preview = txt.replace("\n", " ")[:120]
+            logger.debug("Clipboard text changed: '%s'%s", preview, " ..." if len(txt) > 120 else "")
+            if URL_RE.match(txt.strip()) and (now - last_config_change_at > CONFIG_DEBOUNCE_SEC):
+                try:
+                    new_chat, new_thread = parse_telegram_topic_url(txt.strip())
+                    logger.info("Detected Telegram topic URL -> candidate chat=%s thread=%s", new_chat, new_thread)
+                    prev_chat, prev_thread = chat_id, thread_id
+
+                    # Validate by posting 📌 BEFORE saving
+                    try:
+                        await post_pin(new_chat, new_thread)
+                        save_config(new_chat, new_thread)
+                        chat_id, thread_id = new_chat, new_thread
+                        last_config_change_at = now
+                        logger.info("Reconfigured successfully -> chat=%s thread=%s", chat_id, thread_id)
+                    except Exception as e:
+                        # Do NOT save; keep previous, notify there
+                        if prev_chat is not None and prev_thread is not None:
+                            logger.warning(
+                                "Reconfigure failed (%s). Keeping previous chat=%s thread=%s and notifying there.",
+                                e, prev_chat, prev_thread
+                            )
+                            try:
+                                await post_pin(prev_chat, prev_thread)
+                            except Exception as e2:
+                                logger.warning("Also failed to notify previous chat: %s", e2)
+                        else:
+                            logger.warning("Reconfigure failed and no previous chat configured.")
+                except Exception as e:
+                    logger.warning("Failed to parse/apply reconfigure: %s", e)
+                    logger.debug("Trace:\n%s", traceback.format_exc())
+            last_text_seen = txt
+
+        # 2) Clipboard IMAGE → edge-trigger & once-per-sig
+        img = get_clipboard_image()
+        clip_has_image = img is not None
+
+        # Edge-trigger: act only when image just appeared
+        if clip_has_image and not last_clip_had_image:
+            logger.info("Image appeared in clipboard (edge-trigger).")
+            if chat_id is None or thread_id is None:
+                logger.warning("No valid config yet. Copy a Telegram topic URL to configure.")
+            else:
+                sig = image_signature(img)
+                if sig in processed_sigs:
+                    logger.info("This image was already processed recently (sig seen). Skipping.")
+                else:
+                    # mark as processed FIRST to guarantee single send even if errors
+                    processed_sigs[sig] = now
+                    try:
+                        try:
+                            if IMAGE_FILE.exists():
+                                IMAGE_FILE.unlink()
+                        except Exception:
+                            pass
+                        img.save(IMAGE_FILE, "PNG")
+                        logger.info("Saved screenshot -> %s", IMAGE_FILE)
+
+                        url = await send_image(chat_id, thread_id, IMAGE_FILE)
+                        try:
+                            pyperclip.copy(url)
+                            logger.info("URL copied to clipboard.")
+                        except Exception as e:
+                            logger.warning("Failed to copy URL: %s", e)
+                    except Exception as e:
+                        logger.error("Failed to send image (but will NOT retry this same image): %s", e)
+                        logger.debug("Trace:\n%s", traceback.format_exc())
+        elif clip_has_image and last_clip_had_image:
+            # Still the same state; do nothing to avoid duplicates
+            logger.debug("Clipboard still has an image; waiting for it to change...")
+        else:
+            # Not an image now — reset happens here, so next image triggers again
+            pass
+
+        last_clip_had_image = clip_has_image
+        await asyncio.sleep(LOOP_SLEEP_SEC)
+
+# Entry
+if __name__ == "__main__":
+    try:
+        asyncio.run(async_main())
+    except KeyboardInterrupt:
+        logger.info("Stopped by user (Ctrl+C). Bye!")
+
