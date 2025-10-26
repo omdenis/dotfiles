@@ -43,9 +43,7 @@ def compress_to_mobile_hq(src: Path, dst: Path) -> None:
       - CRF 23, preset slow
       - mono 64k AAC (change -ac 1 to -ac 2 and 128k if you want stereo)
     """
-    vf = (
-        "fps=3,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos"
-    )
+   
 
     args = [
         FFMPEG,
@@ -53,8 +51,8 @@ def compress_to_mobile_hq(src: Path, dst: Path) -> None:
         "-i", str(src),
         "-map_metadata", "-1",
         "-max_muxing_queue_size", "512",
-        "-vf", vf,
-        "-tune", "stillimage",
+        "-vf", "scale=trunc(iw/2):trunc(ih/2):flags=lanczos",
+        "-r", "3",
         "-crf", "25",
         "-vcodec", "libx264", "-preset", "slow", "-profile:v", "main", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-ac", "1", "-b:a", "64k",
