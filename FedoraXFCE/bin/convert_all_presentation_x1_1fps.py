@@ -87,7 +87,7 @@ def extract_audio_compact(src: Path, dst: Path) -> None:
 
 def should_skip(path: Path) -> bool:
     """Skip already-processed outputs inside result/ to avoid infinite loops."""
-    return path.parent.name == "webinar"
+    return path.parent.name == "presentation"
 
 def find_media_files(root: Path) -> list[Path]:
     files = []
@@ -106,7 +106,7 @@ def main():
 
     ensure_ffmpeg()
 
-    outdir = root / "webinar"
+    outdir = root / "presentation"
     outdir.mkdir(exist_ok=True)
 
     media_files = find_media_files(root)

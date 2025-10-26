@@ -28,8 +28,8 @@ def ensure_ffmpeg():
 def make_paths(src: Path, outdir: Path) -> tuple[Path, Path]:
     """
     For a source file foo.mov:
-      - video:  result/foo-result.mp4
-      - audio:  result/foo-audio.m4a
+      - video:  video_x2/foo-result.mp4
+      - audio:  video_x2/foo-audio.m4a
     """
     video_out = outdir / f"{src.stem}-result.mp4"
     audio_out = outdir / f"{src.stem}-audio.m4a"
@@ -52,7 +52,7 @@ def compress_to_mobile_hq(src: Path, dst: Path) -> None:
         "-map_metadata", "-1",
         "-max_muxing_queue_size", "512",
         "-vf", "scale=trunc(iw/2):trunc(ih/2):flags=lanczos",
-        "-r", "3",
+        "-r", "5",
         "-crf", "25",
         "-vcodec", "libx264", "-preset", "slow", "-profile:v", "main", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-ac", "1", "-b:a", "64k",
@@ -83,7 +83,7 @@ def extract_audio_compact(src: Path, dst: Path) -> None:
 
 def should_skip(path: Path) -> bool:
     """Skip already-processed outputs inside result/ to avoid infinite loops."""
-    return path.parent.name == "webinar_x2"
+    return path.parent.name == "video_x2"
 
 def find_media_files(root: Path) -> list[Path]:
     files = []
@@ -102,7 +102,7 @@ def main():
 
     ensure_ffmpeg()
 
-    outdir = root / "webinar_x2"
+    outdir = root / "video_x2"
     outdir.mkdir(exist_ok=True)
 
     media_files = find_media_files(root)
