@@ -50,11 +50,6 @@ def complress_to_telegram(src: Path, dst: Path) -> None:
       - CRF 25, preset slow
       - mono 64k AAC
     """
-   
-    # Build path: <dst.parent>/half/<dst.name>
-    half_dir = dst.parent / "half"
-    half_dir.mkdir(parents=True, exist_ok=True)  # make sure it exists
-    dst_half = half_dir / dst.name
     
     args = [
         FFMPEG,
@@ -68,7 +63,7 @@ def complress_to_telegram(src: Path, dst: Path) -> None:
         "-vcodec", "libx264", "-preset", "slow", "-profile:v", "main", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-ac", "1", "-b:a", "64k",
         "-movflags", "+faststart",
-        str(dst_half),
+        str(dst),
     ]
     r = run(args)
     if r.returncode != 0:
