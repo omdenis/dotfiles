@@ -9,7 +9,7 @@ from enum import Enum
 FFMPEG = "ffmpeg"
 
 class ConversionMode(Enum):
-    CURRENT = 1
+    TELEGRAM = 1
     AUDIO_ONLY = 2
     VIDEO_SLIDES_1FPS = 3
     VIDEO_SLIDES_1FPS_HALF = 4
@@ -42,41 +42,20 @@ def make_paths(src: Path, outdir: Path) -> tuple[Path, Path]:
     audio_out = outdir / f"{src.stem}-audio.m4a"
     return video_out, audio_out
 
-def compress_to_mobile_hq(src: Path, dst: Path) -> None:
+def complress_to_telegram(src: Path, dst: Path) -> None:
     """
     Re-encode to compact H.264 + AAC suitable for mobile viewing:
-      - ~25 fps
-      - (optional) downscale logic can be tweaked in vf
-      - CRF 23, preset slow
-      - mono 64k AAC (change -ac 1 to -ac 2 and 128k if you want stereo)
+      - 15 fps
+      - half resolution (scale by 0.5)
+      - CRF 25, preset slow
+      - mono 64k AAC
     """
    
-    # Build path: <dst.parent>/full/<dst.name>
-    full_dir = dst.parent / "full"
-    full_dir.mkdir(parents=True, exist_ok=True)  # make sure it exists
-    dst_full = full_dir / dst.name
-
-    args = [
-        FFMPEG,
-        "-y",
-        "-i", str(src),
-        "-map_metadata", "-1",
-        "-max_muxing_queue_size", "512",
-        "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos",
-        "-r", "15",
-        "-crf", "25",
-        "-vcodec", "libx264", "-preset", "slow", "-profile:v", "main", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-ac", "1", "-b:a", "64k",
-        "-movflags", "+faststart",
-        str(dst_full),
-    ]
-    r = run(args)
-    if r.returncode != 0:
-        raise RuntimeError(r.stderr.strip() or "ffmpeg failed (video)")
-
-    full_dir = dst.parent / "half"
-    full_dir.mkdir(parents=True, exist_ok=True)  # make sure it exists
-    dst_full = full_dir / dst.name
+    # Build path: <dst.parent>/half/<dst.name>
+    half_dir = dst.parent / "half"
+    half_dir.mkdir(parents=True, exist_ok=True)  # make sure it exists
+    dst_half = half_dir / dst.name
+    
     args = [
         FFMPEG,
         "-y",
@@ -89,7 +68,7 @@ def compress_to_mobile_hq(src: Path, dst: Path) -> None:
         "-vcodec", "libx264", "-preset", "slow", "-profile:v", "main", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-ac", "1", "-b:a", "64k",
         "-movflags", "+faststart",
-        str(dst_full),
+        str(dst_half),
     ]
     r = run(args)
     if r.returncode != 0:
@@ -169,17 +148,17 @@ def show_conversion_dialog() -> ConversionMode:
     print("\n" + "="*60)
     print("🎬 Video Conversion Tool - Select Conversion Mode")
     print("="*60)
-    print("1) Current implementation (video: 15fps full/half + audio 64kb)")
+    print("1) Telegram (video: 15fps x2 + audio 64kb)")
     print("2) Only audio 64Kb")
     print("3) Only video slides (1fps)")
-    print("4) Only video slides (1fps, reduce twice resolution)")
+    print("4) Only video slides (1fps, x2)")
     print("="*60)
     
     while True:
         try:
             choice = input("\nEnter your choice (1-4): ").strip()
             if choice == "1":
-                return ConversionMode.CURRENT
+                return ConversionMode.TELEGRAM
             elif choice == "2":
                 return ConversionMode.AUDIO_ONLY
             elif choice == "3":
@@ -207,7 +186,7 @@ def main():
     # Show dialog to select conversion mode
     mode = show_conversion_dialog()
     
-    outdir = root / "video_x2"
+    outdir = root / mode.name.lower()
     outdir.mkdir(exist_ok=True)
 
     print(f"\n🚀 Starting conversion with mode: {mode.name}")
@@ -219,7 +198,7 @@ def main():
 
         print(f"\n🎬 Source: {src.name}")
         try:
-            if mode == ConversionMode.CURRENT:
+            if mode == ConversionMode.TELEGRAM:
                 # Original implementation: video (full + half) + audio
                 todo = []
                 if not video_out.exists():
@@ -233,7 +212,7 @@ def main():
 
                 if "video" in todo and src.suffix.lower() in VIDEO_EXTS:
                     print(f"   ▶ Converting to MP4 → {video_out.name}")
-                    compress_to_mobile_hq(src, video_out)
+                    complress_to_telegram(src, video_out)
                     if not video_out.exists() or video_out.stat().st_size == 0:
                         raise RuntimeError("Output video missing or empty.")
                     print(f"   ✅ Video done")
