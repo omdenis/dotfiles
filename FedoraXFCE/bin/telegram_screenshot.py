@@ -157,6 +157,27 @@ async def send_to_telegram(chat_id: int, thread_id: int):
     copy_to_clipboard(msg_url)
 
 
+async def send_test_message(chat_id: int, thread_id: int):
+    """
+    Send a test message "." to verify the configuration is correct.
+    """
+    if not BOT_TOKEN:
+        raise RuntimeError("BOT_TOKEN is not set in ~/.env")
+
+    # Lazy import to avoid touching telegram libs when not needed
+    from telegram import Bot
+
+    bot = Bot(token=BOT_TOKEN)
+
+    log.info("[*] Sending test message to verify configuration...")
+    await bot.send_message(
+        chat_id=chat_id,
+        text=".",
+        message_thread_id=thread_id,
+    )
+    log.info("✅ Test message sent successfully")
+
+
 # ================= Config helpers =======================
 def save_config(chat_id: int, thread_id: int):
     CONFIG_PATH.mkdir(parents=True, exist_ok=True)
@@ -218,6 +239,8 @@ def main():
             save_config(chat_id, thread_id)
             log.info("[%s] ✅ Reconfigured: chat_id=%s, thread_id=%s",
                      datetime.now().isoformat(timespec="seconds"), chat_id, thread_id)
+            # Send test message to verify configuration
+            asyncio.run(send_test_message(chat_id, thread_id))
         except Exception as e:
             log.exception("❌ URL parse error: %s", e)
         return  # VERY IMPORTANT: exit immediately; don't touch telegram libs, etc.
