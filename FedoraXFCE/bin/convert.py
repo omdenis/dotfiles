@@ -44,13 +44,12 @@ def make_paths(src: Path, outdir: Path) -> tuple[Path, Path]:
 
 def complress_to_telegram(src: Path, dst: Path) -> None:
     """
-    Re-encode to compact H.264 + AAC suitable for mobile viewing:
+    Re-encode to compact H.264 + AAC suitable for Telegram:
       - 15 fps
       - half resolution (scale by 0.5)
       - CRF 25, preset slow
       - mono 64k AAC
     """
-    
     args = [
         FFMPEG,
         "-y",
@@ -262,7 +261,7 @@ def main():
             print(f"⚠️  Failed on {src.name}: {e}", file=sys.stderr)
             exit_code = 1
 
-    print("\n🏁 Finished. Check the 'video_x2' folder for your goodies.")
+    print(f"\n🏁 Finished. Check the '{mode.name.lower()}' folder for your goodies.")
     sys.exit(exit_code)
 
 if __name__ == "__main__":
