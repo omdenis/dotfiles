@@ -10,14 +10,14 @@ while true; do
 
     case $choice in
         1)
-            openvpn3 session-start --config msp.ovpn
+            openvpn3 session-start --config ~/.config/vpn.ovpn
             openvpn3 sessions-list
             ;;
         2)
             openvpn3 sessions-list
             ;;
         3)
-            openvpn3 session-manage --config msp.ovpn --disconnect
+            openvpn3 session-manage --config ~/.config/vpn.ovpn --disconnect
             ;;
         0)
             echo "Exiting..."
