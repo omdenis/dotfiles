@@ -103,11 +103,14 @@ def transcribe_file(
     media_file: Path, 
     output_dir: Path,
     model: str = "turbo",
-    language: str = "en"
+    language: str = "en",
+    avg_processing_speed: float = 0
 ) -> tuple[bool, dict]:
     """
     Transcribe a single file using Whisper
     Returns (success: bool, stats: dict with processing info)
+    
+    avg_processing_speed: seconds per MB (for estimation)
     """
     # Get file size and duration
     file_size_bytes = media_file.stat().st_size
@@ -118,6 +121,11 @@ def transcribe_file(
     print(f"    📦 Size: {file_size_mb:.2f} MB")
     if media_duration > 0:
         print(f"    🎬 Duration: {format_time(media_duration)}")
+    
+    # Estimate time if we have speed data
+    if avg_processing_speed > 0:
+        estimated_time = file_size_mb * avg_processing_speed
+        print(f"    ⏳ Estimated time: ~{format_time(estimated_time)}")
     
     # Determine output filename (add index if file exists)
     base_output = output_dir / f"{media_file.stem}.md"
@@ -143,12 +151,34 @@ def transcribe_file(
     ]
     
     try:
-        result = subprocess.run(
+        # Run whisper and show live progress
+        process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True
         )
+        
+        # Show progress animation while processing
+        spinner = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+        spinner_idx = 0
+        
+        while process.poll() is None:
+            elapsed = time.time() - start_time
+            if avg_processing_speed > 0:
+                estimated_total = file_size_mb * avg_processing_speed
+                remaining = max(0, estimated_total - elapsed)
+                progress_msg = f"    {spinner[spinner_idx]} Processing... {format_time(elapsed)} elapsed / ~{format_time(remaining)} remaining"
+            else:
+                progress_msg = f"    {spinner[spinner_idx]} Processing... {format_time(elapsed)} elapsed"
+            
+            print(f"\r{progress_msg}", end='', flush=True)
+            spinner_idx = (spinner_idx + 1) % len(spinner)
+            time.sleep(0.1)
+        
+        # Get the result
+        stdout, stderr = process.communicate()
+        result = process
         
         # Calculate duration
         duration = time.time() - start_time
@@ -175,7 +205,8 @@ def transcribe_file(
                 stats["line_count"] = len(content.splitlines())
                 stats["success"] = True
                 
-                print(f"    ⏱️ Processing time: {format_time(duration)}")
+                # Clear the "Processing..." line and show result
+                print(f"\r    ⏱️  Processing time: {format_time(duration)}" + " " * 20)
                 
                 # Prepend statistics to the output file
                 stats_header = f""" Transcription Statistics
@@ -203,10 +234,10 @@ def transcribe_file(
                 print(f"    ✅ Done: {output_file.name}")
                 print(f"    📊 Stats: {stats['char_count']:,} chars, {stats['word_count']:,} words, {stats['line_count']} lines")
             else:
-                print(f"    ❌ Output file not found")
+                print(f"\r    ❌ Output file not found" + " " * 40)
             return True, stats
         else:
-            print(f"    ❌ Error: {result.stderr.strip()}")
+            print(f"\r    ❌ Error: {stderr.strip()}" + " " * 40)
             return False, stats
     except Exception as e:
         duration = time.time() - start_time
@@ -220,7 +251,7 @@ def transcribe_file(
             "word_count": 0,
             "line_count": 0
         }
-        print(f"    ❌ Exception: {e}")
+        print(f"\r    ❌ Exception: {e}" + " " * 40)
         return False, stats
 
 def show_file_menu(files: list[Path], output_dir: Path, current_language: str, current_subdir: str) -> tuple[list[int], str, str]:
@@ -374,12 +405,43 @@ def main():
     all_stats = []
     overall_start_time = time.time()
     
-    for idx in selected_indices:
+    # Calculate average processing speed (seconds per MB)
+    avg_processing_speed = 0.0
+    total_processed_mb = 0.0
+    total_processed_time = 0.0
+    
+    for file_num, idx in enumerate(selected_indices, start=1):
         media_file = media_files[idx]
         
+        # Show progress
+        print(f"\n{'='*60}")
+        print(f"📊 Progress: {file_num}/{len(selected_indices)} files")
+        
+        # Calculate remaining files stats
+        if avg_processing_speed > 0 and file_num > 1:
+            remaining_files = len(selected_indices) - file_num + 1
+            # Estimate remaining time based on average file size
+            remaining_mb = sum(media_files[i].stat().st_size / (1024 * 1024) 
+                             for i in selected_indices[file_num-1:])
+            estimated_remaining = remaining_mb * avg_processing_speed
+            
+            overall_elapsed = time.time() - overall_start_time
+            estimated_total = overall_elapsed + estimated_remaining
+            
+            print(f"⏳ Estimated remaining: ~{format_time(estimated_remaining)}")
+            print(f"🏁 Estimated completion: ~{format_time(estimated_total)} total")
+        print(f"{'='*60}")
+        
         # Transcribe file (will create indexed file if already exists)
-        success, stats = transcribe_file(media_file, final_output_dir, model, language)
+        success, stats = transcribe_file(media_file, final_output_dir, model, language, avg_processing_speed)
         all_stats.append(stats)
+        
+        # Update average processing speed
+        if stats["success"]:
+            total_processed_mb += stats["file_size_mb"]
+            total_processed_time += stats["duration_seconds"]
+            if total_processed_mb > 0:
+                avg_processing_speed = total_processed_time / total_processed_mb
         
         if success:
             success_count += 1
