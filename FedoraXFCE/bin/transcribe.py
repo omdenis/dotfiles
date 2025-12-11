@@ -175,7 +175,7 @@ def transcribe_file(
                 stats["line_count"] = len(content.splitlines())
                 stats["success"] = True
                 
-                print(f"    ⏱️  Processing time: {format_time(duration)}")
+                print(f"    ⏱️ Processing time: {format_time(duration)}")
                 
                 # Prepend statistics to the output file
                 stats_header = f""" Transcription Statistics
@@ -349,7 +349,7 @@ def main():
     print(f"📊 Model: {model}")
     print(f"🌐 Language: {language}")
     print(f"📁 Output: {output_dir}")
-    print(f"📝 Files to process: {len(selected_indices)}")
+    print(f"📝 Files to process: {len(selected_indices)}\n")
     
     # Transcribe selected files
     success_count = 0
