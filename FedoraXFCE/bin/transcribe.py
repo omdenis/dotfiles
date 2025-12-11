@@ -99,76 +99,6 @@ def format_time(seconds: float) -> str:
     secs = int(seconds % 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
-def convert_srt_to_paragraphs(srt_content: str) -> str:
-    """
-    Convert SRT format to paragraphs by removing timestamps and index numbers.
-    Each SRT segment becomes a paragraph separated by blank lines.
-    """
-    lines = srt_content.strip().split('\n')
-    paragraphs = []
-    current_text = []
-    
-    for line in lines:
-        line = line.strip()
-        
-        # Skip empty lines
-        if not line:
-            continue
-        
-        # Skip sequence numbers (lines that are just digits)
-        if line.isdigit():
-            continue
-        
-        # Skip timestamp lines (contain -->)
-        if '-->' in line:
-            continue
-        
-        # This is actual text content
-        current_text.append(line)
-        
-        # Check if next line in original is empty (end of segment)
-        # We'll collect all text and join segments
-    
-    # Split by original SRT segments (they're separated in groups)
-    segments = []
-    current_segment = []
-    
-    i = 0
-    while i < len(lines):
-        line = lines[i].strip()
-        
-        # Start of new segment (number)
-        if line.isdigit():
-            if current_segment:
-                segments.append(' '.join(current_segment))
-                current_segment = []
-            i += 1
-            continue
-        
-        # Timestamp line
-        if '-->' in line:
-            i += 1
-            continue
-        
-        # Empty line marks end of segment
-        if not line:
-            if current_segment:
-                segments.append(' '.join(current_segment))
-                current_segment = []
-            i += 1
-            continue
-        
-        # Text content
-        current_segment.append(line)
-        i += 1
-    
-    # Add last segment if exists
-    if current_segment:
-        segments.append(' '.join(current_segment))
-    
-    # Join segments with blank lines to create paragraphs
-    return '\n\n'.join(segments)
-
 def transcribe_file(
     media_file: Path, 
     output_dir: Path,
@@ -203,13 +133,12 @@ def transcribe_file(
     # Start timer
     start_time = time.time()
     
-    # Use SRT format to get timestamps for paragraph breaks
     cmd = [
         "whisper",
         str(media_file),
         "--model", model,
         "--language", language,
-        "--output_format", "srt",
+        "--output_format", "txt",
         "--output_dir", str(output_dir)
     ]
     
@@ -236,15 +165,11 @@ def transcribe_file(
         }
         
         if result.returncode == 0:
-            # Whisper creates .srt file, we need to read it and convert to paragraphs
-            whisper_output = output_dir / f"{media_file.stem}.srt"
+            # Whisper creates .txt file, we need to read it and convert to .md
+            whisper_output = output_dir / f"{media_file.stem}.txt"
             
             if whisper_output.exists():
-                srt_content = whisper_output.read_text(encoding='utf-8')
-                
-                # Convert SRT to paragraphs
-                content = convert_srt_to_paragraphs(srt_content)
-                
+                content = whisper_output.read_text(encoding='utf-8')
                 stats["char_count"] = len(content)
                 stats["word_count"] = len(content.split())
                 stats["line_count"] = len(content.splitlines())
@@ -298,17 +223,15 @@ def transcribe_file(
         print(f"    ❌ Exception: {e}")
         return False, stats
 
-def show_file_menu(files: list[Path], output_dir: Path, current_language: str, current_subdir: str) -> tuple[list[int], str, str]:
+def show_file_menu(files: list[Path], output_dir: Path, current_language: str) -> tuple[list[int], str]:
     """
     Show file selection menu for transcription
-    Returns (list of selected file indices, language code, subdirectory)
+    Returns (list of selected file indices, language code)
     """
     print("\n" + "="*60)
     print("🎬 Whisper Transcription Tool")
     print("="*60)
     print(f"🌐 Current language: {current_language}")
-    if current_subdir:
-        print(f"📂 Subdirectory: {current_subdir}")
     print("="*60)
     print("0) All files")
     
@@ -318,8 +241,7 @@ def show_file_menu(files: list[Path], output_dir: Path, current_language: str, c
     
     print("="*60)
     print("Enter numbers separated by space (e.g.: 1 3 5) or 0 for all")
-    print("Or type 2-3 letter code (e.g.: en, ru) to change language")
-    print("Or type word/phrase (e.g.: lectures, my-notes) for subdirectory")
+    print("Or type language code (e.g.: en, ru, es) to change language")
     print("Press Enter without input to exit")
     
     while True:
@@ -327,22 +249,15 @@ def show_file_menu(files: list[Path], output_dir: Path, current_language: str, c
             choice = input("\nChoice: ").strip()
             
             if not choice:
-                return [], current_language, current_subdir
+                return [], current_language
             
-            # Check if it's a language code (2-3 letters only, all alpha)
-            if choice.isalpha() and 2 <= len(choice) <= 3:
+            # Check if it's a language code (typically 2-3 letters, no digits)
+            if choice.isalpha() and len(choice) <= 3:
                 print(f"🌐 Language changed to: {choice}")
-                return None, choice, current_subdir  # Return None to indicate language change
-            
-            # Check if it's a subdirectory name (word/phrase, not a number)
-            if choice.isalnum() or '-' in choice or '_' in choice:
-                # If it contains digits or is longer than 3 chars and not purely digits
-                if not choice.isdigit() and (len(choice) > 3 or any(c in choice for c in ['-', '_']) or any(c.isdigit() for c in choice)):
-                    print(f"📂 Subdirectory set to: {choice}")
-                    return None, current_language, choice  # Return None to indicate subdir change
+                return None, choice  # Return None to indicate language change
             
             if choice == "0":
-                return list(range(len(files))), current_language, current_subdir
+                return list(range(len(files))), current_language
             
             # Parse list of numbers
             selected = []
@@ -357,13 +272,13 @@ def show_file_menu(files: list[Path], output_dir: Path, current_language: str, c
                     print(f"❌ '{num}' is not a number or valid language code")
             
             if selected:
-                return selected, current_language, current_subdir
+                return selected, current_language
             else:
                 print("❌ No files selected. Try again.")
                 
         except (EOFError, KeyboardInterrupt):
             print("\n\n❌ Cancelled by user")
-            return [], current_language, current_subdir
+            return [], current_language
 
 def get_output_directory(root: Path) -> Path:
     """
@@ -415,15 +330,14 @@ def main():
     # Transcription settings
     model = "turbo"  # can be changed to "base", "small", "medium", "large"
     language = "en"  # default language
-    subdir = ""  # subdirectory for output files
     
-    # Show menu and get selection (loop to allow language/subdir changes)
+    # Show menu and get selection (loop to allow language changes)
     selected_indices = None
     while selected_indices is None:
-        selected_indices, language, subdir = show_file_menu(media_files, output_dir, language, subdir)
+        selected_indices, language = show_file_menu(media_files, output_dir, language)
         
         if not selected_indices and selected_indices != []:
-            # Language or subdirectory was changed, show menu again
+            # Language was changed, show menu again
             selected_indices = None
             continue
     
@@ -431,16 +345,10 @@ def main():
         print("\n👋 Exit")
         sys.exit(0)
     
-    # Create subdirectory if specified
-    final_output_dir = output_dir
-    if subdir:
-        final_output_dir = output_dir / subdir
-        final_output_dir.mkdir(parents=True, exist_ok=True)
-    
     print(f"\n🚀 Starting transcription")
     print(f"📊 Model: {model}")
     print(f"🌐 Language: {language}")
-    print(f"📁 Output: {final_output_dir}")
+    print(f"📁 Output: {output_dir}")
     print(f"📝 Files to process: {len(selected_indices)}\n")
     
     # Transcribe selected files
@@ -453,8 +361,7 @@ def main():
         media_file = media_files[idx]
         
         # Transcribe file (will create indexed file if already exists)
-        success, stats = transcribe_file(media_file, final_output_dir, model, language)
-        all_stats.append(stats)
+        success, stats = transcribe_file(media_file, output_dir, model, language)
         all_stats.append(stats)
         
         if success:
@@ -472,7 +379,7 @@ def main():
     print(f"✅ Successful: {success_count}")
     if failed_count > 0:
         print(f"❌ Failed: {failed_count}")
-    print(f"📁 Output directory: {final_output_dir}")
+    print(f"📁 Output directory: {output_dir}")
     
     if all_stats:
         print("\n" + "-"*60)
