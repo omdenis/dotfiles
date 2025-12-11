@@ -150,13 +150,15 @@ def transcribe_file(
         print(f"    ❌ Exception: {e}")
         return False, stats
 
-def show_file_menu(files: list[Path], output_dir: Path) -> list[int]:
+def show_file_menu(files: list[Path], output_dir: Path, current_language: str) -> tuple[list[int], str]:
     """
     Show file selection menu for transcription
-    Returns list of selected file indices
+    Returns (list of selected file indices, language code)
     """
     print("\n" + "="*60)
     print("🎬 Whisper Transcription Tool")
+    print("="*60)
+    print(f"🌐 Current language: {current_language}")
     print("="*60)
     print("0) All files")
     
@@ -166,6 +168,7 @@ def show_file_menu(files: list[Path], output_dir: Path) -> list[int]:
     
     print("="*60)
     print("Enter numbers separated by space (e.g.: 1 3 5) or 0 for all")
+    print("Or type language code (e.g.: en, ru, es) to change language")
     print("Press Enter without input to exit")
     
     while True:
@@ -173,10 +176,15 @@ def show_file_menu(files: list[Path], output_dir: Path) -> list[int]:
             choice = input("\nChoice: ").strip()
             
             if not choice:
-                return []
+                return [], current_language
+            
+            # Check if it's a language code (typically 2-3 letters, no digits)
+            if choice.isalpha() and len(choice) <= 3:
+                print(f"🌐 Language changed to: {choice}")
+                return None, choice  # Return None to indicate language change
             
             if choice == "0":
-                return list(range(len(files)))
+                return list(range(len(files))), current_language
             
             # Parse list of numbers
             selected = []
@@ -188,16 +196,16 @@ def show_file_menu(files: list[Path], output_dir: Path) -> list[int]:
                     else:
                         print(f"❌ Number {num} out of range")
                 except ValueError:
-                    print(f"❌ '{num}' is not a number")
+                    print(f"❌ '{num}' is not a number or valid language code")
             
             if selected:
-                return selected
+                return selected, current_language
             else:
                 print("❌ No files selected. Try again.")
                 
         except (EOFError, KeyboardInterrupt):
             print("\n\n❌ Cancelled by user")
-            return []
+            return [], current_language
 
 def get_output_directory(root: Path) -> Path:
     """
@@ -246,16 +254,23 @@ def main():
         print("🤷 No media files found in current directory")
         sys.exit(0)
     
-    # Show menu and get selection
-    selected_indices = show_file_menu(media_files, output_dir)
+    # Transcription settings
+    model = "turbo"  # can be changed to "base", "small", "medium", "large"
+    language = "en"  # default language
+    
+    # Show menu and get selection (loop to allow language changes)
+    selected_indices = None
+    while selected_indices is None:
+        selected_indices, language = show_file_menu(media_files, output_dir, language)
+        
+        if not selected_indices and selected_indices != []:
+            # Language was changed, show menu again
+            selected_indices = None
+            continue
     
     if not selected_indices:
         print("\n👋 Exit")
         sys.exit(0)
-    
-    # Transcription settings
-    model = "turbo"  # can be changed to "base", "small", "medium", "large"
-    language = "en"  # can be changed to "ru", "auto", etc.
     
     print(f"\n🚀 Starting transcription")
     print(f"📊 Model: {model}")
