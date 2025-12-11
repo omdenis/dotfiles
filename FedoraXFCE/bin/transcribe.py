@@ -99,6 +99,76 @@ def format_time(seconds: float) -> str:
     secs = int(seconds % 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
+def convert_srt_to_paragraphs(srt_content: str) -> str:
+    """
+    Convert SRT format to paragraphs by removing timestamps and index numbers.
+    Each SRT segment becomes a paragraph separated by blank lines.
+    """
+    lines = srt_content.strip().split('\n')
+    paragraphs = []
+    current_text = []
+    
+    for line in lines:
+        line = line.strip()
+        
+        # Skip empty lines
+        if not line:
+            continue
+        
+        # Skip sequence numbers (lines that are just digits)
+        if line.isdigit():
+            continue
+        
+        # Skip timestamp lines (contain -->)
+        if '-->' in line:
+            continue
+        
+        # This is actual text content
+        current_text.append(line)
+        
+        # Check if next line in original is empty (end of segment)
+        # We'll collect all text and join segments
+    
+    # Split by original SRT segments (they're separated in groups)
+    segments = []
+    current_segment = []
+    
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        # Start of new segment (number)
+        if line.isdigit():
+            if current_segment:
+                segments.append(' '.join(current_segment))
+                current_segment = []
+            i += 1
+            continue
+        
+        # Timestamp line
+        if '-->' in line:
+            i += 1
+            continue
+        
+        # Empty line marks end of segment
+        if not line:
+            if current_segment:
+                segments.append(' '.join(current_segment))
+                current_segment = []
+            i += 1
+            continue
+        
+        # Text content
+        current_segment.append(line)
+        i += 1
+    
+    # Add last segment if exists
+    if current_segment:
+        segments.append(' '.join(current_segment))
+    
+    # Join segments with blank lines to create paragraphs
+    return '\n\n'.join(segments)
+
 def transcribe_file(
     media_file: Path, 
     output_dir: Path,
@@ -133,12 +203,13 @@ def transcribe_file(
     # Start timer
     start_time = time.time()
     
+    # Use SRT format to get timestamps for paragraph breaks
     cmd = [
         "whisper",
         str(media_file),
         "--model", model,
         "--language", language,
-        "--output_format", "txt",
+        "--output_format", "srt",
         "--output_dir", str(output_dir)
     ]
     
@@ -165,11 +236,15 @@ def transcribe_file(
         }
         
         if result.returncode == 0:
-            # Whisper creates .txt file, we need to read it and convert to .md
-            whisper_output = output_dir / f"{media_file.stem}.txt"
+            # Whisper creates .srt file, we need to read it and convert to paragraphs
+            whisper_output = output_dir / f"{media_file.stem}.srt"
             
             if whisper_output.exists():
-                content = whisper_output.read_text(encoding='utf-8')
+                srt_content = whisper_output.read_text(encoding='utf-8')
+                
+                # Convert SRT to paragraphs
+                content = convert_srt_to_paragraphs(srt_content)
+                
                 stats["char_count"] = len(content)
                 stats["word_count"] = len(content.split())
                 stats["line_count"] = len(content.splitlines())
