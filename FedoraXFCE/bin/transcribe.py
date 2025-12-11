@@ -145,6 +145,7 @@ def transcribe_file(
         stats = {
             "file_name": media_file.name,
             "file_size_mb": file_size_mb,
+            "media_duration_seconds": media_duration,
             "duration_seconds": duration,
             "success": False,
             "char_count": 0,
@@ -162,7 +163,7 @@ def transcribe_file(
                 stats["line_count"] = len(content.splitlines())
                 stats["success"] = True
                 
-                print(f"    ⏱️  Time: {timedelta(seconds=int(duration))}")
+                print(f"    ⏱️  Processing time: {format_time(duration)}")
                 print(f"    ✅ Done: {media_file.stem}.txt")
                 print(f"    📊 Stats: {stats['char_count']:,} chars, {stats['word_count']:,} words, {stats['line_count']} lines")
             else:
@@ -176,6 +177,7 @@ def transcribe_file(
         stats = {
             "file_name": media_file.name,
             "file_size_mb": file_size_mb,
+            "media_duration_seconds": media_duration,
             "duration_seconds": duration,
             "success": False,
             "char_count": 0,
@@ -341,7 +343,7 @@ def main():
     print("\n" + "="*60)
     print("🏁 TRANSCRIPTION REPORT")
     print("="*60)
-    print(f"⏱️  Total time: {timedelta(seconds=int(overall_duration))}")
+    print(f"⏱️  Total time: {format_time(overall_duration)}")
     print(f"✅ Successful: {success_count}")
     if failed_count > 0:
         print(f"❌ Failed: {failed_count}")
@@ -353,6 +355,7 @@ def main():
         print("-"*60)
         
         total_size = 0
+        total_media_duration = 0
         total_chars = 0
         total_words = 0
         total_lines = 0
@@ -362,10 +365,13 @@ def main():
             if stat["success"]:
                 print(f"\n📄 {stat['file_name']}")
                 print(f"   Size: {stat['file_size_mb']:.2f} MB")
-                print(f"   Time: {timedelta(seconds=int(stat['duration_seconds']))}")
+                if stat['media_duration_seconds'] > 0:
+                    print(f"   Media duration: {format_time(stat['media_duration_seconds'])}")
+                print(f"   Processing time: {format_time(stat['duration_seconds'])}")
                 print(f"   Output: {stat['char_count']:,} chars, {stat['word_count']:,} words, {stat['line_count']} lines")
                 
                 total_size += stat['file_size_mb']
+                total_media_duration += stat['media_duration_seconds']
                 total_chars += stat['char_count']
                 total_words += stat['word_count']
                 total_lines += stat['line_count']
@@ -376,7 +382,9 @@ def main():
             print("📈 TOTALS")
             print("-"*60)
             print(f"Total input size: {total_size:.2f} MB")
-            print(f"Total processing time: {timedelta(seconds=int(total_duration))}")
+            if total_media_duration > 0:
+                print(f"Total media duration: {format_time(total_media_duration)}")
+            print(f"Total processing time: {format_time(total_duration)}")
             print(f"Total output: {total_chars:,} characters")
             print(f"              {total_words:,} words")
             print(f"              {total_lines} lines")
