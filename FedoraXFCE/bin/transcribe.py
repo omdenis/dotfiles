@@ -166,6 +166,25 @@ def transcribe_file(
                 print(f"    ⏱️  Processing time: {format_time(duration)}")
                 print(f"    ✅ Done: {media_file.stem}.txt")
                 print(f"    📊 Stats: {stats['char_count']:,} chars, {stats['word_count']:,} words, {stats['line_count']} lines")
+                
+                # Prepend statistics to the output file
+                stats_header = f"""# Transcription Statistics
+# File: {media_file.name}
+# Size: {file_size_mb:.2f} MB
+"""
+                if media_duration > 0:
+                    stats_header += f"# Media duration: {format_time(media_duration)}\n"
+                
+                stats_header += f"""# Processing time: {format_time(duration)}
+# Output: {stats['char_count']:,} characters, {stats['word_count']:,} words, {stats['line_count']} lines
+# Model: {model}
+# Language: {language}
+
+
+"""
+                
+                # Write the header + original content back to file
+                output_file.write_text(stats_header + content, encoding='utf-8')
             else:
                 print(f"    ❌ Output file not found")
             return True, stats
