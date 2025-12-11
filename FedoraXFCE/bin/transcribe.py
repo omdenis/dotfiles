@@ -165,8 +165,8 @@ def transcribe_file(
         }
         
         if result.returncode == 0:
-            # Whisper creates file with original name, we need to rename if necessary
-            whisper_output = output_dir / f"{media_file.stem}.md"
+            # Whisper creates .txt file, we need to read it and convert to .md
+            whisper_output = output_dir / f"{media_file.stem}.txt"
             
             if whisper_output.exists():
                 content = whisper_output.read_text(encoding='utf-8')
