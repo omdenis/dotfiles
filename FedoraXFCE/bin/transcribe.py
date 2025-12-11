@@ -24,7 +24,9 @@ Requirements:
 import sys
 import os
 import subprocess
+import time
 from pathlib import Path
+from datetime import timedelta
 
 # Supported audio and video formats
 AUDIO_EXTS = {
@@ -70,12 +72,20 @@ def transcribe_file(
     output_dir: Path,
     model: str = "turbo",
     language: str = "en"
-) -> bool:
+) -> tuple[bool, dict]:
     """
     Transcribe a single file using Whisper
-    Returns True if successful, False on error
+    Returns (success: bool, stats: dict with processing info)
     """
+    # Get file size
+    file_size_bytes = media_file.stat().st_size
+    file_size_mb = file_size_bytes / (1024 * 1024)
+    
     print(f"\n🎙️  Transcribing: {media_file.name}")
+    print(f"    📦 Size: {file_size_mb:.2f} MB")
+    
+    # Start timer
+    start_time = time.time()
     
     cmd = [
         "whisper",
@@ -94,15 +104,51 @@ def transcribe_file(
             text=True
         )
         
+        # Calculate duration
+        duration = time.time() - start_time
+        
+        stats = {
+            "file_name": media_file.name,
+            "file_size_mb": file_size_mb,
+            "duration_seconds": duration,
+            "success": False,
+            "char_count": 0,
+            "word_count": 0,
+            "line_count": 0
+        }
+        
         if result.returncode == 0:
-            print(f"   ✅ Done: {media_file.stem}.txt")
-            return True
+            # Read the output file to get statistics
+            output_file = output_dir / f"{media_file.stem}.txt"
+            if output_file.exists():
+                content = output_file.read_text(encoding='utf-8')
+                stats["char_count"] = len(content)
+                stats["word_count"] = len(content.split())
+                stats["line_count"] = len(content.splitlines())
+                stats["success"] = True
+                
+                print(f"    ⏱️  Time: {timedelta(seconds=int(duration))}")
+                print(f"    ✅ Done: {media_file.stem}.txt")
+                print(f"    📊 Stats: {stats['char_count']:,} chars, {stats['word_count']:,} words, {stats['line_count']} lines")
+            else:
+                print(f"    ❌ Output file not found")
+            return True, stats
         else:
-            print(f"   ❌ Error: {result.stderr.strip()}")
-            return False
+            print(f"    ❌ Error: {result.stderr.strip()}")
+            return False, stats
     except Exception as e:
-        print(f"   ❌ Exception: {e}")
-        return False
+        duration = time.time() - start_time
+        stats = {
+            "file_name": media_file.name,
+            "file_size_mb": file_size_mb,
+            "duration_seconds": duration,
+            "success": False,
+            "char_count": 0,
+            "word_count": 0,
+            "line_count": 0
+        }
+        print(f"    ❌ Exception: {e}")
+        return False, stats
 
 def show_file_menu(files: list[Path], output_dir: Path) -> list[int]:
     """
@@ -220,6 +266,8 @@ def main():
     # Transcribe selected files
     success_count = 0
     failed_count = 0
+    all_stats = []
+    overall_start_time = time.time()
     
     for idx in selected_indices:
         media_file = media_files[idx]
@@ -229,18 +277,64 @@ def main():
             print(f"\n⏭️  Skipping (already done): {media_file.name}")
             continue
         
-        if transcribe_file(media_file, output_dir, model, language):
+        success, stats = transcribe_file(media_file, output_dir, model, language)
+        all_stats.append(stats)
+        
+        if success:
             success_count += 1
         else:
             failed_count += 1
     
-    # Summary
+    overall_duration = time.time() - overall_start_time
+    
+    # Print detailed summary report
     print("\n" + "="*60)
-    print("🏁 Completed!")
-    print(f"✅ Success: {success_count}")
+    print("🏁 TRANSCRIPTION REPORT")
+    print("="*60)
+    print(f"⏱️  Total time: {timedelta(seconds=int(overall_duration))}")
+    print(f"✅ Successful: {success_count}")
     if failed_count > 0:
         print(f"❌ Failed: {failed_count}")
-    print(f"📁 Results in: {output_dir}")
+    print(f"📁 Output directory: {output_dir}")
+    
+    if all_stats:
+        print("\n" + "-"*60)
+        print("📊 DETAILED STATISTICS")
+        print("-"*60)
+        
+        total_size = 0
+        total_chars = 0
+        total_words = 0
+        total_lines = 0
+        total_duration = 0
+        
+        for stat in all_stats:
+            if stat["success"]:
+                print(f"\n📄 {stat['file_name']}")
+                print(f"   Size: {stat['file_size_mb']:.2f} MB")
+                print(f"   Time: {timedelta(seconds=int(stat['duration_seconds']))}")
+                print(f"   Output: {stat['char_count']:,} chars, {stat['word_count']:,} words, {stat['line_count']} lines")
+                
+                total_size += stat['file_size_mb']
+                total_chars += stat['char_count']
+                total_words += stat['word_count']
+                total_lines += stat['line_count']
+                total_duration += stat['duration_seconds']
+        
+        if success_count > 0:
+            print("\n" + "-"*60)
+            print("📈 TOTALS")
+            print("-"*60)
+            print(f"Total input size: {total_size:.2f} MB")
+            print(f"Total processing time: {timedelta(seconds=int(total_duration))}")
+            print(f"Total output: {total_chars:,} characters")
+            print(f"              {total_words:,} words")
+            print(f"              {total_lines} lines")
+            
+            if total_duration > 0:
+                avg_speed = total_size / (total_duration / 60)  # MB per minute
+                print(f"\n⚡ Average speed: {avg_speed:.2f} MB/min")
+    
     print("="*60)
     
     sys.exit(0 if failed_count == 0 else 1)
