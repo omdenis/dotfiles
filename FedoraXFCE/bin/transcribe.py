@@ -397,7 +397,18 @@ def main():
     print(f"📊 Model: {model}")
     print(f"🌐 Language: {language}")
     print(f"📁 Output: {final_output_dir}")
-    print(f"📝 Files to process: {len(selected_indices)}\n")
+    print(f"📝 Files to process: {len(selected_indices)}")
+    
+    # Calculate total media duration for all selected files
+    total_media_duration = 0.0
+    for idx in selected_indices:
+        duration = get_media_duration(media_files[idx])
+        total_media_duration += duration
+    
+    if total_media_duration > 0:
+        print(f"🎬 Total media duration: {format_time(total_media_duration)}\n")
+    else:
+        print()
     
     # Transcribe selected files
     success_count = 0
@@ -409,6 +420,7 @@ def main():
     avg_processing_speed = 0.0
     total_processed_mb = 0.0
     total_processed_time = 0.0
+    processed_media_duration = 0.0
     
     for file_num, idx in enumerate(selected_indices, start=1):
         media_file = media_files[idx]
@@ -416,6 +428,14 @@ def main():
         # Show progress
         print(f"\n{'='*60}")
         print(f"📊 Progress: {file_num}/{len(selected_indices)} files")
+        
+        # Calculate remaining media duration
+        remaining_media_duration = 0.0
+        for i in selected_indices[file_num-1:]:
+            remaining_media_duration += get_media_duration(media_files[i])
+        
+        if remaining_media_duration > 0:
+            print(f"🎬 Remaining content duration: {format_time(remaining_media_duration)}")
         
         # Calculate remaining files stats
         if avg_processing_speed > 0 and file_num > 1:
@@ -428,18 +448,19 @@ def main():
             overall_elapsed = time.time() - overall_start_time
             estimated_total = overall_elapsed + estimated_remaining
             
-            print(f"⏳ Estimated remaining: ~{format_time(estimated_remaining)}")
-            print(f"🏁 Estimated completion: ~{format_time(estimated_total)} total")
+            print(f"⏳ Estimated processing time remaining: ~{format_time(estimated_remaining)}")
+            print(f"🏁 Estimated total completion time: ~{format_time(estimated_total)}")
         print(f"{'='*60}")
         
         # Transcribe file (will create indexed file if already exists)
         success, stats = transcribe_file(media_file, final_output_dir, model, language, avg_processing_speed)
         all_stats.append(stats)
         
-        # Update average processing speed
+        # Update average processing speed and track processed media duration
         if stats["success"]:
             total_processed_mb += stats["file_size_mb"]
             total_processed_time += stats["duration_seconds"]
+            processed_media_duration += stats["media_duration_seconds"]
             if total_processed_mb > 0:
                 avg_processing_speed = total_processed_time / total_processed_mb
         
