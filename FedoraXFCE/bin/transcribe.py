@@ -67,6 +67,38 @@ def file_already_transcribed(media_file: Path, output_dir: Path) -> bool:
     txt_file = output_dir / f"{media_file.stem}.txt"
     return txt_file.exists()
 
+def get_media_duration(media_file: Path) -> float:
+    """
+    Get duration of media file in seconds using ffprobe
+    Returns 0 if unable to determine duration
+    """
+    try:
+        cmd = [
+            "ffprobe",
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(media_file)
+        ]
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return float(result.stdout.strip())
+    except (ValueError, FileNotFoundError):
+        pass
+    return 0
+
+def format_time(seconds: float) -> str:
+    """Format seconds as HH:MM:SS"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
 def transcribe_file(
     media_file: Path, 
     output_dir: Path,
@@ -77,12 +109,15 @@ def transcribe_file(
     Transcribe a single file using Whisper
     Returns (success: bool, stats: dict with processing info)
     """
-    # Get file size
+    # Get file size and duration
     file_size_bytes = media_file.stat().st_size
     file_size_mb = file_size_bytes / (1024 * 1024)
+    media_duration = get_media_duration(media_file)
     
     print(f"\n🎙️  Transcribing: {media_file.name}")
     print(f"    📦 Size: {file_size_mb:.2f} MB")
+    if media_duration > 0:
+        print(f"    🎬 Duration: {format_time(media_duration)}")
     
     # Start timer
     start_time = time.time()
