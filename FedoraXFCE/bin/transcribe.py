@@ -380,7 +380,6 @@ def main():
         # Transcribe file (will create indexed file if already exists)
         success, stats = transcribe_file(media_file, final_output_dir, model, language)
         all_stats.append(stats)
-        all_stats.append(stats)
         
         if success:
             success_count += 1
