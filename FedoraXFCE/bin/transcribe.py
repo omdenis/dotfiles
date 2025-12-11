@@ -360,11 +360,7 @@ def main():
     for idx in selected_indices:
         media_file = media_files[idx]
         
-        # Skip already transcribed files
-        if file_already_transcribed(media_file, output_dir):
-            print(f"\n⏭️  Skipping (already done): {media_file.name}")
-            continue
-        
+        # Transcribe file (will create indexed file if already exists)
         success, stats = transcribe_file(media_file, output_dir, model, language)
         all_stats.append(stats)
         
