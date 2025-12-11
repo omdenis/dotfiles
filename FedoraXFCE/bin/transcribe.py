@@ -178,17 +178,17 @@ def transcribe_file(
                 print(f"    ⏱️  Processing time: {format_time(duration)}")
                 
                 # Prepend statistics to the output file
-                stats_header = f"""# Transcription Statistics
-# File: {media_file.name}
-# Size: {file_size_mb:.2f} MB
+                stats_header = f""" Transcription Statistics
+* File: {media_file.name}
+* Size: {file_size_mb:.2f} MB
 """
                 if media_duration > 0:
-                    stats_header += f"# Media duration: {format_time(media_duration)}\n"
+                    stats_header += f"* Media duration: {format_time(media_duration)}\n"
                 
-                stats_header += f"""# Processing time: {format_time(duration)}
-# Output: {stats['char_count']:,} characters, {stats['word_count']:,} words, {stats['line_count']} lines
-# Model: {model}
-# Language: {language}
+                stats_header += f"""* Processing time: {format_time(duration)}
+* Output: {stats['char_count']:,} characters, {stats['word_count']:,} words, {stats['line_count']} lines
+* Model: {model}
+* Language: {language}
 
 
 """
