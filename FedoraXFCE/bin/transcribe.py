@@ -22,6 +22,7 @@ Requirements:
 """
 
 import sys
+import os
 import subprocess
 from pathlib import Path
 
@@ -152,6 +153,33 @@ def show_file_menu(files: list[Path], output_dir: Path) -> list[int]:
             print("\n\n❌ Cancelled by user")
             return []
 
+def get_output_directory(root: Path) -> Path:
+    """
+    Get output directory from OBSIDIAN_PATH environment variable or use default ./out
+    Shows configuration hint if OBSIDIAN_PATH is not set
+    """
+    obsidian_path = os.getenv("OBSIDIAN_PATH")
+    
+    if obsidian_path:
+        output_dir = Path(obsidian_path).expanduser().resolve()
+        print(f"📁 Using OBSIDIAN_PATH: {output_dir}")
+    else:
+        output_dir = root / "out"
+        print("\n" + "ℹ️  " + "="*58)
+        print("💡 Tip: You can configure a custom output directory")
+        print("   Set OBSIDIAN_PATH environment variable:")
+        print()
+        print("   # Add to ~/.bashrc:")
+        print('   export OBSIDIAN_PATH="$HOME/Documents/Obsidian/Transcripts"')
+        print()
+        print("   # Then reload:")
+        print("   source ~/.bashrc")
+        print("="*60)
+        print(f"📁 Using default output: {output_dir}\n")
+    
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return output_dir
+
 def main():
     # Check if whisper is installed
     if not check_whisper():
@@ -162,9 +190,8 @@ def main():
     # Current directory
     root = Path(".").resolve()
     
-    # Output directory
-    output_dir = root / "out"
-    output_dir.mkdir(exist_ok=True)
+    # Output directory (from OBSIDIAN_PATH or default ./out)
+    output_dir = get_output_directory(root)
     
     # Find all media files
     media_files = find_media_files(root)
