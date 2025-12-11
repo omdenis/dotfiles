@@ -64,7 +64,7 @@ def find_media_files(root: Path) -> list[Path]:
 
 def file_already_transcribed(media_file: Path, output_dir: Path) -> bool:
     """Check if the file has already been transcribed"""
-    txt_file = output_dir / f"{media_file.stem}.txt"
+    txt_file = output_dir / f"{media_file.stem}.md"
     return txt_file.exists()
 
 def get_media_duration(media_file: Path) -> float:
@@ -166,7 +166,7 @@ def transcribe_file(
         
         if result.returncode == 0:
             # Whisper creates file with original name, we need to rename if necessary
-            whisper_output = output_dir / f"{media_file.stem}.txt"
+            whisper_output = output_dir / f"{media_file.stem}.md"
             
             if whisper_output.exists():
                 content = whisper_output.read_text(encoding='utf-8')
