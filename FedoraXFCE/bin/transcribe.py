@@ -223,15 +223,17 @@ def transcribe_file(
         print(f"    ❌ Exception: {e}")
         return False, stats
 
-def show_file_menu(files: list[Path], output_dir: Path, current_language: str) -> tuple[list[int], str]:
+def show_file_menu(files: list[Path], output_dir: Path, current_language: str, current_subdir: str) -> tuple[list[int], str, str]:
     """
     Show file selection menu for transcription
-    Returns (list of selected file indices, language code)
+    Returns (list of selected file indices, language code, subdirectory)
     """
     print("\n" + "="*60)
     print("🎬 Whisper Transcription Tool")
     print("="*60)
     print(f"🌐 Current language: {current_language}")
+    if current_subdir:
+        print(f"📂 Subdirectory: {current_subdir}")
     print("="*60)
     print("0) All files")
     
@@ -241,7 +243,8 @@ def show_file_menu(files: list[Path], output_dir: Path, current_language: str) -
     
     print("="*60)
     print("Enter numbers separated by space (e.g.: 1 3 5) or 0 for all")
-    print("Or type language code (e.g.: en, ru, es) to change language")
+    print("Or type 2-3 letter code (e.g.: en, ru) to change language")
+    print("Or type word/phrase (e.g.: lectures, my-notes) for subdirectory")
     print("Press Enter without input to exit")
     
     while True:
@@ -249,15 +252,22 @@ def show_file_menu(files: list[Path], output_dir: Path, current_language: str) -
             choice = input("\nChoice: ").strip()
             
             if not choice:
-                return [], current_language
+                return [], current_language, current_subdir
             
-            # Check if it's a language code (typically 2-3 letters, no digits)
-            if choice.isalpha() and len(choice) <= 3:
+            # Check if it's a language code (2-3 letters only, all alpha)
+            if choice.isalpha() and 2 <= len(choice) <= 3:
                 print(f"🌐 Language changed to: {choice}")
-                return None, choice  # Return None to indicate language change
+                return None, choice, current_subdir  # Return None to indicate language change
+            
+            # Check if it's a subdirectory name (word/phrase, not a number)
+            if choice.isalnum() or '-' in choice or '_' in choice:
+                # If it contains digits or is longer than 3 chars and not purely digits
+                if not choice.isdigit() and (len(choice) > 3 or any(c in choice for c in ['-', '_']) or any(c.isdigit() for c in choice)):
+                    print(f"📂 Subdirectory set to: {choice}")
+                    return None, current_language, choice  # Return None to indicate subdir change
             
             if choice == "0":
-                return list(range(len(files))), current_language
+                return list(range(len(files))), current_language, current_subdir
             
             # Parse list of numbers
             selected = []
@@ -272,13 +282,13 @@ def show_file_menu(files: list[Path], output_dir: Path, current_language: str) -
                     print(f"❌ '{num}' is not a number or valid language code")
             
             if selected:
-                return selected, current_language
+                return selected, current_language, current_subdir
             else:
                 print("❌ No files selected. Try again.")
                 
         except (EOFError, KeyboardInterrupt):
             print("\n\n❌ Cancelled by user")
-            return [], current_language
+            return [], current_language, current_subdir
 
 def get_output_directory(root: Path) -> Path:
     """
@@ -330,14 +340,15 @@ def main():
     # Transcription settings
     model = "turbo"  # can be changed to "base", "small", "medium", "large"
     language = "en"  # default language
+    subdir = ""  # subdirectory for output files
     
-    # Show menu and get selection (loop to allow language changes)
+    # Show menu and get selection (loop to allow language/subdir changes)
     selected_indices = None
     while selected_indices is None:
-        selected_indices, language = show_file_menu(media_files, output_dir, language)
+        selected_indices, language, subdir = show_file_menu(media_files, output_dir, language, subdir)
         
         if not selected_indices and selected_indices != []:
-            # Language was changed, show menu again
+            # Language or subdirectory was changed, show menu again
             selected_indices = None
             continue
     
@@ -345,10 +356,16 @@ def main():
         print("\n👋 Exit")
         sys.exit(0)
     
+    # Create subdirectory if specified
+    final_output_dir = output_dir
+    if subdir:
+        final_output_dir = output_dir / subdir
+        final_output_dir.mkdir(parents=True, exist_ok=True)
+    
     print(f"\n🚀 Starting transcription")
     print(f"📊 Model: {model}")
     print(f"🌐 Language: {language}")
-    print(f"📁 Output: {output_dir}")
+    print(f"📁 Output: {final_output_dir}")
     print(f"📝 Files to process: {len(selected_indices)}\n")
     
     # Transcribe selected files
@@ -361,7 +378,8 @@ def main():
         media_file = media_files[idx]
         
         # Transcribe file (will create indexed file if already exists)
-        success, stats = transcribe_file(media_file, output_dir, model, language)
+        success, stats = transcribe_file(media_file, final_output_dir, model, language)
+        all_stats.append(stats)
         all_stats.append(stats)
         
         if success:
@@ -379,7 +397,7 @@ def main():
     print(f"✅ Successful: {success_count}")
     if failed_count > 0:
         print(f"❌ Failed: {failed_count}")
-    print(f"📁 Output directory: {output_dir}")
+    print(f"📁 Output directory: {final_output_dir}")
     
     if all_stats:
         print("\n" + "-"*60)
