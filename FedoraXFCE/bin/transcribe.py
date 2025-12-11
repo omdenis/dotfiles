@@ -119,6 +119,17 @@ def transcribe_file(
     if media_duration > 0:
         print(f"    🎬 Duration: {format_time(media_duration)}")
     
+    # Determine output filename (add index if file exists)
+    base_output = output_dir / f"{media_file.stem}.txt"
+    output_file = base_output
+    index = 1
+    while output_file.exists():
+        output_file = output_dir / f"{media_file.stem}-{index}.txt"
+        index += 1
+    
+    if output_file != base_output:
+        print(f"    📝 Output will be: {output_file.name}")
+    
     # Start timer
     start_time = time.time()
     
@@ -154,18 +165,17 @@ def transcribe_file(
         }
         
         if result.returncode == 0:
-            # Read the output file to get statistics
-            output_file = output_dir / f"{media_file.stem}.txt"
-            if output_file.exists():
-                content = output_file.read_text(encoding='utf-8')
+            # Whisper creates file with original name, we need to rename if necessary
+            whisper_output = output_dir / f"{media_file.stem}.txt"
+            
+            if whisper_output.exists():
+                content = whisper_output.read_text(encoding='utf-8')
                 stats["char_count"] = len(content)
                 stats["word_count"] = len(content.split())
                 stats["line_count"] = len(content.splitlines())
                 stats["success"] = True
                 
                 print(f"    ⏱️  Processing time: {format_time(duration)}")
-                print(f"    ✅ Done: {media_file.stem}.txt")
-                print(f"    📊 Stats: {stats['char_count']:,} chars, {stats['word_count']:,} words, {stats['line_count']} lines")
                 
                 # Prepend statistics to the output file
                 stats_header = f"""# Transcription Statistics
@@ -183,8 +193,15 @@ def transcribe_file(
 
 """
                 
-                # Write the header + original content back to file
+                # Write to the final output file (may have index suffix)
                 output_file.write_text(stats_header + content, encoding='utf-8')
+                
+                # Remove the original whisper output if it's different from our target
+                if whisper_output != output_file:
+                    whisper_output.unlink()
+                
+                print(f"    ✅ Done: {output_file.name}")
+                print(f"    📊 Stats: {stats['char_count']:,} chars, {stats['word_count']:,} words, {stats['line_count']} lines")
             else:
                 print(f"    ❌ Output file not found")
             return True, stats
