@@ -120,11 +120,11 @@ def transcribe_file(
         print(f"    🎬 Duration: {format_time(media_duration)}")
     
     # Determine output filename (add index if file exists)
-    base_output = output_dir / f"{media_file.stem}.txt"
+    base_output = output_dir / f"{media_file.stem}.md"
     output_file = base_output
     index = 1
     while output_file.exists():
-        output_file = output_dir / f"{media_file.stem}-{index}.txt"
+        output_file = output_dir / f"{media_file.stem}-{index}.md"
         index += 1
     
     if output_file != base_output:
