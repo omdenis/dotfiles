@@ -135,7 +135,7 @@ def find_media_files(root: Path) -> list[Path]:
             files.append(p)
     return files
 
-def show_conversion_dialog() -> tuple[ConversionMode, bool]:
+def show_conversion_dialog(media_files: list[Path]) -> tuple[ConversionMode, bool]:
     """
     Show interactive dialog to select conversion mode.
     Returns (mode, process_all_files)
@@ -148,6 +148,15 @@ def show_conversion_dialog() -> tuple[ConversionMode, bool]:
     print("2) Only audio 64Kb")
     print("3) Only video slides (1fps)")
     print("4) Only video slides (1fps, x2)")
+    print("="*60)
+    
+    # Show current selection
+    if not media_files:
+        print("📂 Current selection: Nothing (no media files in folder)")
+    elif len(media_files) == 1:
+        print(f"📂 Current selection: {media_files[0].name}")
+    else:
+        print(f"📂 Current selection: All files ({len(media_files)} files)")
     print("="*60)
     
     while True:
@@ -194,13 +203,15 @@ def main():
     ensure_ffmpeg()
 
     media_files = find_media_files(root)
+    
+    # Show dialog to select conversion mode (even if no files found)
+    mode, process_all = show_conversion_dialog(media_files)
+    
+    # Check if we have files to process
     if not media_files:
-        print("🤷 No media files found in the current folder. "
+        print("\n🤷 No media files found in the current folder. "
               "Try tossing in some .mov/.webm/.avi/.mp4 and friends.")
         sys.exit(0)
-
-    # Show dialog to select conversion mode
-    mode, process_all = show_conversion_dialog()
     
     # Determine which files to process
     if process_all:
