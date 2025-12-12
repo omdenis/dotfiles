@@ -1,0 +1,124 @@
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+
+class Program
+{
+    [DllImport("user32.dll")]
+    private static extern int GetKeyboardLayoutList(int nBuff, [Out] IntPtr[] lpList);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr LoadKeyboardLayout(string pwszKLID, uint Flags);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SystemParametersInfo(uint uiAction, uint uiParam, ref IntPtr pvParam, uint fWinIni);
+
+    private const uint KLF_ACTIVATE = 0x00000001;
+
+    private const uint WM_INPUTLANGCHANGEREQUEST = 0x0050;
+    private const int INPUTLANGCHANGE_FORWARD = 0x0002;
+
+    private const uint SPI_SETDEFAULTINPUTLANG = 0x005A;
+    private const uint SPIF_SENDCHANGE = 0x0002;
+
+    // PRIMARYLANGID(langid)
+    private static ushort PrimaryLangId(ushort langId) => (ushort)(langId & 0x03FF);
+
+    private const ushort LANG_ENGLISH = 0x0009;
+    private const ushort LANG_RUSSIAN = 0x0019;
+    private const ushort LANG_DANISH  = 0x0006;
+
+    private static readonly Dictionary<string, (ushort primary, string defaultKlid)> Targets =
+        new Dictionary<string, (ushort, string)>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "en", (LANG_ENGLISH, "00000409") }, // English (US)
+            { "ru", (LANG_RUSSIAN, "00000419") }, // Russian
+            { "da", (LANG_DANISH,  "00000406") }  // Danish
+        };
+
+    static int Main(string[] args)
+    {
+        if (args.Length == 0)
+        {
+            Console.WriteLine("Usage: SwitchLayoutForWindows en | ru | da");
+            return 1;
+        }
+
+        string code = args[0];
+
+        if (!Targets.TryGetValue(code, out var target))
+        {
+            Console.WriteLine("Unknown language code '{0}'. Use: en, ru, da", code);
+            return 1;
+        }
+
+        // 1. Получаем список загруженных раскладок
+        int count = GetKeyboardLayoutList(0, null);
+        IntPtr targetHkl = IntPtr.Zero;
+
+        if (count > 0)
+        {
+            var layouts = new IntPtr[count];
+            GetKeyboardLayoutList(count, layouts);
+
+            foreach (var hkl in layouts)
+            {
+                ushort langId = (ushort)((long)hkl & 0xFFFF);
+                ushort primary = PrimaryLangId(langId);
+
+                if (primary == target.primary)
+                {
+                    targetHkl = hkl;
+                    break;
+                }
+            }
+        }
+
+        // 2. Если подходящая раскладка не найдена — подгружаем дефолтную для этого языка
+        if (targetHkl == IntPtr.Zero)
+        {
+            targetHkl = LoadKeyboardLayout(target.defaultKlid, KLF_ACTIVATE);
+            if (targetHkl == IntPtr.Zero)
+            {
+                Console.WriteLine("Failed to load keyboard layout for '{0}'.", code);
+                return 1;
+            }
+        }
+
+        // 3. Делаем её дефолтной раскладкой для системы (новые окна/потоки)
+        IntPtr hklForSpi = targetHkl;
+        bool spiOk = SystemParametersInfo(
+            SPI_SETDEFAULTINPUTLANG,
+            0,
+            ref hklForSpi,
+            SPIF_SENDCHANGE
+        );
+
+        if (!spiOk)
+        {
+            Console.WriteLine("Warning: failed to set default input language (SystemParametersInfo).");
+        }
+
+        // 4. Broadcast the change to all top-level windows
+        // Use HWND_BROADCAST instead of just the foreground window
+        const int HWND_BROADCAST = 0xFFFF;
+        PostMessage(
+            new IntPtr(HWND_BROADCAST),
+            WM_INPUTLANGCHANGEREQUEST,
+            new IntPtr(INPUTLANGCHANGE_FORWARD),
+            targetHkl
+        );
+
+        Console.WriteLine($"Switched to: {code}");
+        Console.WriteLine($"HKL: 0x{((ulong)targetHkl.ToInt64()):X8}");
+        return 0;
+    }
+}
+
+
