@@ -135,13 +135,15 @@ def find_media_files(root: Path) -> list[Path]:
             files.append(p)
     return files
 
-def show_conversion_dialog() -> ConversionMode:
+def show_conversion_dialog() -> tuple[ConversionMode, bool]:
     """
     Show interactive dialog to select conversion mode.
+    Returns (mode, process_all_files)
     """
     print("\n" + "="*60)
     print("🎬 Video Conversion Tool - Select Conversion Mode")
     print("="*60)
+    print("0) Process ALL media files in folder")
     print("1) Telegram (video: 15fps x2 + audio 64kb)")
     print("2) Only audio 64Kb")
     print("3) Only video slides (1fps)")
@@ -150,17 +152,37 @@ def show_conversion_dialog() -> ConversionMode:
     
     while True:
         try:
-            choice = input("\nEnter your choice (1-4): ").strip()
-            if choice == "1":
-                return ConversionMode.TELEGRAM
+            choice = input("\nEnter your choice (0-4): ").strip()
+            if choice == "0":
+                # Ask for mode to apply to all files
+                print("\n📂 Processing ALL files. Select conversion mode:")
+                print("1) Telegram (video: 15fps x2 + audio 64kb)")
+                print("2) Only audio 64Kb")
+                print("3) Only video slides (1fps)")
+                print("4) Only video slides (1fps, x2)")
+                mode_choice = input("\nEnter mode (1-4): ").strip()
+                
+                if mode_choice == "1":
+                    return ConversionMode.TELEGRAM, True
+                elif mode_choice == "2":
+                    return ConversionMode.AUDIO_ONLY, True
+                elif mode_choice == "3":
+                    return ConversionMode.VIDEO_SLIDES_1FPS, True
+                elif mode_choice == "4":
+                    return ConversionMode.VIDEO_SLIDES_1FPS_HALF, True
+                else:
+                    print("❌ Invalid mode. Please enter 1, 2, 3, or 4.")
+                    continue
+            elif choice == "1":
+                return ConversionMode.TELEGRAM, False
             elif choice == "2":
-                return ConversionMode.AUDIO_ONLY
+                return ConversionMode.AUDIO_ONLY, False
             elif choice == "3":
-                return ConversionMode.VIDEO_SLIDES_1FPS
+                return ConversionMode.VIDEO_SLIDES_1FPS, False
             elif choice == "4":
-                return ConversionMode.VIDEO_SLIDES_1FPS_HALF
+                return ConversionMode.VIDEO_SLIDES_1FPS_HALF, False
             else:
-                print("❌ Invalid choice. Please enter 1, 2, 3, or 4.")
+                print("❌ Invalid choice. Please enter 0, 1, 2, 3, or 4.")
         except (EOFError, KeyboardInterrupt):
             print("\n\n❌ Cancelled by user.")
             sys.exit(0)
@@ -178,16 +200,27 @@ def main():
         sys.exit(0)
 
     # Show dialog to select conversion mode
-    mode = show_conversion_dialog()
+    mode, process_all = show_conversion_dialog()
+    
+    # Determine which files to process
+    if process_all:
+        files_to_process = media_files
+        scope_label = "All files"
+    else:
+        # Process only current file (first one found, or could be enhanced)
+        files_to_process = [media_files[0]] if media_files else []
+        scope_label = "Current file"
     
     outdir = root / mode.name.lower()
     outdir.mkdir(exist_ok=True)
 
-    print(f"\n🚀 Starting conversion with mode: {mode.name}")
-    print(f"📁 Processing {len(media_files)} file(s)...")
+    print(f"\n🚀 Starting conversion")
+    print(f"📋 Mode: {mode.name}")
+    print(f"� Scope: {scope_label}")
+    print(f"�📁 Processing {len(files_to_process)} file(s)...")
 
     exit_code = 0
-    for src in media_files:
+    for src in files_to_process:
         video_out, audio_out = make_paths(src, outdir)
 
         print(f"\n🎬 Source: {src.name}")
