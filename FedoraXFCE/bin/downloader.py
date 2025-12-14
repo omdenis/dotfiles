@@ -10,13 +10,18 @@ This script scans the current directory for .txt files containing media URLs
 Features:
 - Scans current directory for .txt files with URLs
 - Downloads media files using yt-dlp
-- Saves to ./result directory with numbered prefixes (001, 002, etc.)
+- Each .txt file creates its own output directory (named after the .txt file)
+- Files saved with numbered prefixes (001, 002, etc.)
 - For YouTube: uses video title in filename
 - For m3u8: uses m3u8 filename
 - Sanitizes filenames (only letters and numbers)
 
 Usage:
     python downloader.py
+    
+Example:
+    files.txt → downloads to ./files/ directory
+    course.txt → downloads to ./course/ directory
     
 Requirements:
     - yt-dlp installed in system
@@ -32,7 +37,6 @@ from urllib.parse import urlparse
 # Configuration
 FFMPEG_PATH = Path("~/apps/ffmpeg/ffmpeg").expanduser()
 YTDLP_BIN = "yt-dlp"
-RESULT_DIR = Path("./result")
 
 def check_dependencies():
     """Check if yt-dlp and ffmpeg are available"""
@@ -102,6 +106,11 @@ def extract_urls_from_file(txt_file: Path) -> list[str]:
     except Exception as e:
         print(f"WARNING: Failed to read {txt_file.name}: {e}")
     return urls
+
+def get_output_dir_for_txt(txt_file: Path) -> Path:
+    """Get output directory based on .txt filename (without extension)"""
+    dir_name = txt_file.stem  # filename without .txt extension
+    return Path(".").resolve() / dir_name
 
 def is_youtube_url(url: str) -> bool:
     """Check if URL is a YouTube URL"""
@@ -243,59 +252,62 @@ def main():
     for txt_file in txt_files:
         print(f"  - {txt_file.name}")
     
-    # Extract all URLs from all .txt files
-    all_urls = []
+    # Process each .txt file separately
+    total_success = 0
+    total_fail = 0
+    
     for txt_file in txt_files:
-        urls = extract_urls_from_file(txt_file)
-        print(f"\nExtracted {len(urls)} URL(s) from {txt_file.name}")
-        all_urls.extend(urls)
-    
-    if not all_urls:
-        print("\nNo URLs found in .txt files")
-        sys.exit(0)
-    
-    # Remove duplicates while preserving order
-    seen = set()
-    unique_urls = []
-    for url in all_urls:
-        if url not in seen:
-            seen.add(url)
-            unique_urls.append(url)
-    
-    print(f"\nTotal unique URLs to download: {len(unique_urls)}")
-    
-    # Create result directory
-    RESULT_DIR.mkdir(exist_ok=True)
-    
-    # Download each URL
-    success_count = 0
-    fail_count = 0
-    
-    for index, url in enumerate(unique_urls, start=1):
-        # Generate filename
-        filename = get_filename_from_url(url, index)
-        output_path = RESULT_DIR / filename
+        print("\n" + "="*60)
+        print(f"Processing: {txt_file.name}")
+        print("="*60)
         
-        # Skip if already exists
-        if output_path.exists():
-            print(f"\n[{index}/{len(unique_urls)}] Skipping (already exists): {filename}")
-            success_count += 1
+        # Extract URLs from this file
+        urls = extract_urls_from_file(txt_file)
+        
+        if not urls:
+            print(f"No URLs found in {txt_file.name}, skipping...")
             continue
         
-        print(f"\n[{index}/{len(unique_urls)}]")
-        if download_media(url, output_path):
-            success_count += 1
-        else:
-            fail_count += 1
+        print(f"Found {len(urls)} URL(s)")
+        
+        # Create output directory based on .txt filename
+        output_dir = get_output_dir_for_txt(txt_file)
+        output_dir.mkdir(exist_ok=True)
+        print(f"Output directory: {output_dir.name}/")
+        
+        # Download each URL
+        success_count = 0
+        fail_count = 0
+        
+        for index, url in enumerate(urls, start=1):
+            # Generate filename
+            filename = get_filename_from_url(url, index)
+            output_path = output_dir / filename
+            
+            # Skip if already exists
+            if output_path.exists():
+                print(f"\n[{index}/{len(urls)}] Skipping (already exists): {filename}")
+                success_count += 1
+                continue
+            
+            print(f"\n[{index}/{len(urls)}]")
+            if download_media(url, output_path):
+                success_count += 1
+            else:
+                fail_count += 1
+        
+        # File summary
+        print(f"\n{txt_file.name} - Downloaded: {success_count}, Failed: {fail_count}")
+        total_success += success_count
+        total_fail += fail_count
     
-    # Summary
+    # Final summary
     print("\n" + "="*60)
-    print("Download Summary")
+    print("Final Summary")
     print("="*60)
-    print(f"Total URLs: {len(unique_urls)}")
-    print(f"Successful: {success_count}")
-    print(f"Failed: {fail_count}")
-    print(f"\nFiles saved to: {RESULT_DIR}")
+    print(f"Total files processed: {len(txt_files)}")
+    print(f"Total successful downloads: {total_success}")
+    print(f"Total failed downloads: {total_fail}")
     print("="*60)
 
 if __name__ == "__main__":
