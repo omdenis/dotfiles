@@ -99,6 +99,48 @@ def format_time(seconds: float) -> str:
     secs = int(seconds % 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
+def extract_audio_for_whisper(media_file: Path, temp_dir: Path) -> Path:
+    """
+    Extract lightweight audio from media file for Whisper processing.
+    Returns path to temporary audio file.
+    
+    Args:
+        media_file: Source media file (video or audio)
+        temp_dir: Directory to store temporary audio file
+        
+    Returns:
+        Path to extracted audio file (temp .mp3)
+    """
+    temp_audio = temp_dir / f"temp_{media_file.stem}.mp3"
+    
+    cmd = [
+        "ffmpeg",
+        "-y",  # Overwrite if exists
+        "-i", str(media_file),
+        "-vn",  # No video
+        "-ac", "1",  # Mono
+        "-ar", "16000",  # 16kHz sample rate (Whisper optimal)
+        "-b:a", "64k",  # 64k bitrate
+        str(temp_audio)
+    ]
+    
+    try:
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        if result.returncode == 0 and temp_audio.exists():
+            return temp_audio
+        else:
+            # If extraction failed, return original file
+            return media_file
+    except Exception:
+        # If ffmpeg not available or error, return original file
+        return media_file
+
 def transcribe_file(
     media_file: Path, 
     output_dir: Path,
@@ -138,12 +180,17 @@ def transcribe_file(
     if output_file != base_output:
         print(f"    📝 Output will be: {output_file.name}")
     
+    # Extract lightweight audio for Whisper processing
+    temp_audio = extract_audio_for_whisper(media_file, output_dir)
+    temp_created = (temp_audio != media_file)
+    
     # Start timer
     start_time = time.time()
     
+    # Use temporary audio file for Whisper
     cmd = [
         "whisper",
-        str(media_file),
+        str(temp_audio),
         "--model", model,
         "--language", language,
         "--output_format", "txt",
@@ -195,8 +242,12 @@ def transcribe_file(
         }
         
         if result.returncode == 0:
-            # Whisper creates .txt file, we need to read it and convert to .md
-            whisper_output = output_dir / f"{media_file.stem}.txt"
+            # Whisper creates .txt file based on input filename
+            # If we used temp audio, the output will be temp_XXX.txt
+            if temp_created:
+                whisper_output = output_dir / f"{temp_audio.stem}.txt"
+            else:
+                whisper_output = output_dir / f"{media_file.stem}.txt"
             
             if whisper_output.exists():
                 content = whisper_output.read_text(encoding='utf-8')
@@ -231,13 +282,23 @@ def transcribe_file(
                 if whisper_output != output_file:
                     whisper_output.unlink()
                 
+                # Clean up temporary audio file
+                if temp_created and temp_audio.exists():
+                    temp_audio.unlink()
+                
                 print(f"    ✅ Done: {output_file.name}")
                 print(f"    📊 Stats: {stats['char_count']:,} chars, {stats['word_count']:,} words, {stats['line_count']} lines")
             else:
                 print(f"\r    ❌ Output file not found" + " " * 40)
+                # Clean up temporary audio file on error
+                if temp_created and temp_audio.exists():
+                    temp_audio.unlink()
             return True, stats
         else:
             print(f"\r    ❌ Error: {stderr.strip()}" + " " * 40)
+            # Clean up temporary audio file on error
+            if temp_created and temp_audio.exists():
+                temp_audio.unlink()
             return False, stats
     except Exception as e:
         duration = time.time() - start_time
@@ -252,6 +313,9 @@ def transcribe_file(
             "line_count": 0
         }
         print(f"\r    ❌ Exception: {e}" + " " * 40)
+        # Clean up temporary audio file on exception
+        if temp_created and temp_audio.exists():
+            temp_audio.unlink()
         return False, stats
 
 def show_file_menu(files: list[Path], output_dir: Path, current_language: str, current_subdir: str) -> tuple[list[int], str, str]:
