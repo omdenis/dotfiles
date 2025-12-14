@@ -289,7 +289,16 @@ def main():
             if len(video_files) < 2:
                 print(f"\nOnly {len(video_files)} video file found - nothing to merge")
             else:
-                video_output = outdir / "merged-video.mp4"
+                # Detect format from first file
+                first_ext = video_files[0].suffix.lower()
+                # Use appropriate output format: webm->webm, mkv->mkv, others->mp4
+                if first_ext == ".webm":
+                    video_output = outdir / "merged-video.webm"
+                elif first_ext == ".mkv":
+                    video_output = outdir / "merged-video.mkv"
+                else:
+                    video_output = outdir / "merged-video.mp4"
+                
                 print(f"\nMerging {len(video_files)} video files:")
                 for vf in video_files:
                     print(f"  - {vf.name}")
@@ -308,7 +317,20 @@ def main():
             if len(audio_files) < 2:
                 print(f"\nOnly {len(audio_files)} audio file found - nothing to merge")
             else:
-                audio_output = outdir / "merged-audio.m4a"
+                # Detect format from first file
+                first_ext = audio_files[0].suffix.lower()
+                # Use appropriate output format
+                if first_ext in {".mp3"}:
+                    audio_output = outdir / "merged-audio.mp3"
+                elif first_ext in {".ogg", ".oga", ".opus"}:
+                    audio_output = outdir / "merged-audio.ogg"
+                elif first_ext in {".flac"}:
+                    audio_output = outdir / "merged-audio.flac"
+                elif first_ext in {".wav"}:
+                    audio_output = outdir / "merged-audio.wav"
+                else:
+                    audio_output = outdir / "merged-audio.m4a"
+                
                 print(f"\nMerging {len(audio_files)} audio files:")
                 for af in audio_files:
                     print(f"  - {af.name}")
