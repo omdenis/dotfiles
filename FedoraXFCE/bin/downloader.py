@@ -52,6 +52,45 @@ def check_dependencies():
             print(f"ERROR: {YTDLP_BIN} not found in PATH")
             print("Install: pip install yt-dlp")
             return False
+        
+        # Show current version
+        current_version = result.stdout.strip()
+        print(f"  yt-dlp version: {current_version}")
+        
+        # Check for updates
+        try:
+            update_check = subprocess.run(
+                [YTDLP_BIN, "--update-to", "stable", "--no-update"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=10
+            )
+            # Check if update is available by looking at stderr/stdout
+            output = update_check.stdout + update_check.stderr
+            if "already up to date" in output.lower() or "latest" in output.lower():
+                print(f"  [OK] yt-dlp is up to date")
+            elif "available" in output.lower() or "update" in output.lower():
+                print(f"  [WARNING] yt-dlp update available! Run: sudo dnf upgrade --refresh yt-dlp")
+            else:
+                # Alternative check using -U --simulate
+                update_check2 = subprocess.run(
+                    [YTDLP_BIN, "-U"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=10
+                )
+                output2 = update_check2.stdout + update_check2.stderr
+                if "already" in output2.lower() and "latest" in output2.lower():
+                    print(f"  [OK] yt-dlp is up to date")
+                elif "updated" in output2.lower() or "restart" in output2.lower():
+                    print(f"  [INFO] yt-dlp was just updated, restart may be needed")
+                else:
+                    print(f"  [INFO] Could not verify update status")
+        except (subprocess.TimeoutExpired, Exception):
+            print(f"  [INFO] Could not check for updates (timeout or error)")
+            
     except FileNotFoundError:
         print(f"ERROR: {YTDLP_BIN} not found in PATH")
         print("Install: pip install yt-dlp")
