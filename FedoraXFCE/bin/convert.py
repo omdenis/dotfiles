@@ -37,10 +37,10 @@ def ensure_ffmpeg():
 def make_paths(src: Path, outdir: Path) -> tuple[Path, Path]:
     """
     For a source file foo.mov:
-      - video:  video_x2/foo-result.mp4
+      - video:  video_x2/foo.mp4
       - audio:  video_x2/foo-audio.m4a
     """
-    video_out = outdir / f"{src.stem}-result.mp4"
+    video_out = outdir / f"{src.stem}.mp4"
     audio_out = outdir / f"{src.stem}-audio.m4a"
     return video_out, audio_out
 
