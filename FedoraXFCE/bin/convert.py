@@ -51,13 +51,17 @@ def complress_to_telegram(src: Path, dst: Path) -> None:
       - CRF 25, preset slow
       - mono 64k AAC
     """
+    # Scale filter that ensures even dimensions (required for H.264)
+    # trunc(iw/4)*2 = divide by 2 and round down to nearest even number
+    scale_filter = "scale=trunc(iw/4)*2:trunc(ih/4)*2:flags=lanczos"
+    
     args = [
         FFMPEG,
         "-y",
         "-i", str(src),
         "-map_metadata", "-1",
         "-max_muxing_queue_size", "512",
-        "-vf", "scale=trunc(iw/2):trunc(ih/2):flags=lanczos",
+        "-vf", scale_filter,
         "-r", "15",
         "-crf", "25",
         "-vcodec", "libx264", "-preset", "slow", "-profile:v", "main", "-pix_fmt", "yuv420p",
@@ -95,7 +99,13 @@ def convert_video_slides_1fps(src: Path, dst: Path, reduce_resolution: bool = Fa
       - CRF 23, preset slow
       - mono 64k AAC audio
     """
-    scale_filter = "scale=trunc(iw/2):trunc(ih/2):flags=lanczos" if reduce_resolution else "scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos"
+    # Always ensure even dimensions for H.264 compatibility
+    if reduce_resolution:
+        # Reduce by half, round to even: trunc(iw/4)*2
+        scale_filter = "scale=trunc(iw/4)*2:trunc(ih/4)*2:flags=lanczos"
+    else:
+        # Keep resolution, ensure even: trunc(iw/2)*2
+        scale_filter = "scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos"
     
     args = [
         FFMPEG,
