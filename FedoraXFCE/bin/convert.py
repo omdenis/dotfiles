@@ -11,9 +11,10 @@ FFMPEG = "ffmpeg"
 class ConversionMode(Enum):
     MERGE_FILES = 0
     TELEGRAM = 1
-    AUDIO_ONLY = 2
-    VIDEO_SLIDES_1FPS = 3
-    VIDEO_SLIDES_1FPS_HALF = 4
+    TELEGRAM_24FPS = 2
+    AUDIO_ONLY = 3
+    VIDEO_SLIDES_1FPS = 4
+    VIDEO_SLIDES_1FPS_HALF = 5
 
 # Pick your poison — add more if needed
 VIDEO_EXTS = {
@@ -45,11 +46,11 @@ def make_paths(src: Path, outdir: Path) -> tuple[Path, Path]:
 
 def complress_to_telegram(src: Path, dst: Path) -> None:
     """
-    Re-encode to compact H.264 + AAC suitable for Telegram:
+    Re-encode video only (no audio) to compact H.264 suitable for Telegram:
       - 15 fps
       - half resolution (scale by 0.5)
       - CRF 25, preset slow
-      - mono 64k AAC
+      - no audio
     """
     # Scale filter that ensures even dimensions (required for H.264)
     # trunc(iw/4)*2 = divide by 2 and round down to nearest even number
@@ -63,6 +64,35 @@ def complress_to_telegram(src: Path, dst: Path) -> None:
         "-max_muxing_queue_size", "512",
         "-vf", scale_filter,
         "-r", "15",
+        "-crf", "25",
+        "-vcodec", "libx264", "-preset", "slow", "-profile:v", "main", "-pix_fmt", "yuv420p",
+        "-an",  # No audio
+        "-movflags", "+faststart",
+        str(dst),
+    ]
+    r = run(args)
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.strip() or "ffmpeg failed (video)")
+
+def complress_to_telegram_24fps(src: Path, dst: Path) -> None:
+    """
+    Re-encode to compact H.264 + AAC suitable for Telegram:
+      - 24 fps
+      - original resolution (no scaling)
+      - CRF 25, preset slow
+      - mono 64k AAC
+    """
+    # Ensure even dimensions for H.264 (but keep original size)
+    scale_filter = "scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos"
+    
+    args = [
+        FFMPEG,
+        "-y",
+        "-i", str(src),
+        "-map_metadata", "-1",
+        "-max_muxing_queue_size", "512",
+        "-vf", scale_filter,
+        "-r", "24",
         "-crf", "25",
         "-vcodec", "libx264", "-preset", "slow", "-profile:v", "main", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-ac", "1", "-b:a", "64k",
@@ -200,10 +230,11 @@ def show_conversion_dialog(media_files: list[Path]) -> ConversionMode:
     print("Video Conversion Tool - Select Conversion Mode")
     print("="*60)
     print("0) Merge all files into one (video->video or audio->audio)")
-    print("1) Telegram (video: 15fps x2 + audio 64kb)")
-    print("2) Only audio 64Kb")
-    print("3) Only video slides (1fps)")
-    print("4) Only video slides (1fps, x2)")
+    print("1) Telegram (video: 15fps x2)")
+    print("2) Telegram (video: 24fps ")
+    print("3) Only audio 64Kb")
+    print("4) Only video slides (1fps)")
+    print("5) Only video slides (1fps, x2)")
     print("="*60)
     
     # Show current selection
@@ -217,19 +248,21 @@ def show_conversion_dialog(media_files: list[Path]) -> ConversionMode:
     
     while True:
         try:
-            choice = input("\nEnter your choice (0-4): ").strip()
+            choice = input("\nEnter your choice (0-5): ").strip()
             if choice == "0":
                 return ConversionMode.MERGE_FILES
             elif choice == "1":
                 return ConversionMode.TELEGRAM
             elif choice == "2":
-                return ConversionMode.AUDIO_ONLY
+                return ConversionMode.TELEGRAM_24FPS
             elif choice == "3":
-                return ConversionMode.VIDEO_SLIDES_1FPS
+                return ConversionMode.AUDIO_ONLY
             elif choice == "4":
+                return ConversionMode.VIDEO_SLIDES_1FPS
+            elif choice == "5":
                 return ConversionMode.VIDEO_SLIDES_1FPS_HALF
             else:
-                print("Invalid choice. Please enter 0, 1, 2, 3, or 4.")
+                print("Invalid choice. Please enter 0, 1, 2, 3, 4, or 5.")
         except (EOFError, KeyboardInterrupt):
             print("\n\nCancelled by user.")
             sys.exit(0)
@@ -373,30 +406,36 @@ def main():
         print(f"\nSource: {src.name}")
         try:
             if mode == ConversionMode.TELEGRAM:
-                # Original implementation: video (full + half) + audio
-                todo = []
-                if not video_out.exists():
-                    todo.append("video")
-                if not audio_out.exists():
-                    todo.append("audio")
-
-                if not todo:
+                # Video only, no audio (15fps)
+                if src.suffix.lower() not in VIDEO_EXTS:
+                    print(f"  Skipping (not a video): {src.name}")
+                    continue
+                
+                if video_out.exists():
                     print(f"  Skipping (already done): {src.name}")
                     continue
 
-                if "video" in todo and src.suffix.lower() in VIDEO_EXTS:
-                    print(f"   > Converting to MP4 -> {video_out.name}")
-                    complress_to_telegram(src, video_out)
-                    if not video_out.exists() or video_out.stat().st_size == 0:
-                        raise RuntimeError("Output video missing or empty.")
-                    print(f"   [OK] Video done")
+                print(f"   > Converting to MP4 (video only) -> {video_out.name}")
+                complress_to_telegram(src, video_out)
+                if not video_out.exists() or video_out.stat().st_size == 0:
+                    raise RuntimeError("Output video missing or empty.")
+                print(f"   [OK] Video done")
 
-                # Extract audio from both video and audio sources
-                print(f"   > Extracting audio -> {audio_out.name}")
-                extract_audio_compact(src, audio_out)
-                if not audio_out.exists() or audio_out.stat().st_size == 0:
-                    raise RuntimeError("Output audio missing or empty.")
-                print(f"   [OK] Audio done")
+            elif mode == ConversionMode.TELEGRAM_24FPS:
+                # Video with audio (24fps) - single file output
+                if src.suffix.lower() not in VIDEO_EXTS:
+                    print(f"  Skipping (not a video): {src.name}")
+                    continue
+                
+                if video_out.exists():
+                    print(f"  Skipping (already done): {src.name}")
+                    continue
+
+                print(f"   > Converting to MP4 (24fps + audio) -> {video_out.name}")
+                complress_to_telegram_24fps(src, video_out)
+                if not video_out.exists() or video_out.stat().st_size == 0:
+                    raise RuntimeError("Output video missing or empty.")
+                print(f"   [OK] Video done")
 
             elif mode == ConversionMode.AUDIO_ONLY:
                 # Only extract audio
