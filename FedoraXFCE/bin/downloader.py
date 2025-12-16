@@ -26,6 +26,7 @@ Example:
 Requirements:
     - yt-dlp installed in system
     - ffmpeg installed (custom path or system)
+    - pip install curl-cffi
 """
 
 import sys
@@ -236,17 +237,29 @@ def download_media(url: str, output_path: Path) -> bool:
     cmd = [
         YTDLP_BIN,
         "-o", str(output_path),
-        url
+        "--no-check-certificates",  # Skip SSL certificate verification
+        "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     ]
+    
+    # For direct m3u8/asset URLs - use generic extractor with impersonation
+    if ".m3u8" in url.lower() or "/assets/" in url.lower():
+        cmd.extend(["--force-generic-extractor"])
+        cmd.extend(["--extractor-args", "generic:impersonate=chrome"])
     
     # Add cookies if file exists
     if cookies_file.exists():
         print(f"  [INFO] Using cookies from cookies.txt")
         cmd.extend(["--cookies", str(cookies_file)])
     
+    # Add referer for Udemy and similar sites
+    if "udemy" in url.lower() or "wistia" in url.lower():
+        cmd.extend(["--referer", "https://www.udemy.com/"])
+    
     # Add ffmpeg location if custom path
     if ffmpeg_location:
         cmd.extend(["--ffmpeg-location", ffmpeg_location])
+    
+    cmd.append(url)
     
     try:
         print(f"\n> Downloading: {url}")
@@ -350,8 +363,18 @@ def download_media_with_cookies(url: str, output_path: Path, ffmpeg_location: st
     cmd = [
         YTDLP_BIN,
         "-o", str(output_path),
-        url
+        "--no-check-certificates",
+        "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     ]
+    
+    # For direct m3u8/asset URLs - use generic extractor with impersonation
+    if ".m3u8" in url.lower() or "/assets/" in url.lower():
+        cmd.extend(["--force-generic-extractor"])
+        cmd.extend(["--extractor-args", "generic:impersonate=chrome"])
+    
+    # Add referer for Udemy and similar sites
+    if "udemy" in url.lower() or "wistia" in url.lower():
+        cmd.extend(["--referer", "https://www.udemy.com/"])
     
     # Add cookies from file if exists
     if cookies_file.exists():
@@ -365,6 +388,8 @@ def download_media_with_cookies(url: str, output_path: Path, ffmpeg_location: st
     # Add ffmpeg location if custom path
     if ffmpeg_location:
         cmd.extend(["--ffmpeg-location", ffmpeg_location])
+    
+    cmd.append(url)
     
     print(f"  [INFO] Retrying download with cookies...")
     
