@@ -56,7 +56,7 @@ def check_dependencies():
         # Show current version
         current_version = result.stdout.strip()
         print(f"  yt-dlp version: {current_version}")
-        
+
         # Check for updates
         try:
             update_check = subprocess.run(
@@ -230,11 +230,19 @@ def download_media(url: str, output_path: Path) -> bool:
     else:
         ffmpeg_location = None
     
+    # Check for cookies.txt file in current directory
+    cookies_file = Path("./cookies.txt")
+    
     cmd = [
         YTDLP_BIN,
         "-o", str(output_path),
         url
     ]
+    
+    # Add cookies if file exists
+    if cookies_file.exists():
+        print(f"  [INFO] Using cookies from cookies.txt")
+        cmd.extend(["--cookies", str(cookies_file)])
     
     # Add ffmpeg location if custom path
     if ffmpeg_location:
@@ -257,15 +265,134 @@ def download_media(url: str, output_path: Path) -> bool:
                 return True
             else:
                 print(f"  [ERROR] Output file missing or empty")
+                if result.stdout:
+                    print(f"\n--- yt-dlp output ---")
+                    print(result.stdout)
+                    print(f"--- end of output ---\n")
                 return False
         else:
-            print(f"  [ERROR] Download failed")
+            # Check if error is 403 Forbidden
+            is_403_error = False
             if result.stdout:
-                print(f"  Details: {result.stdout[:200]}")
+                output_lower = result.stdout.lower()
+                if "403" in output_lower and "forbidden" in output_lower:
+                    is_403_error = True
+            
+            print(f"  [ERROR] Download failed (exit code: {result.returncode})")
+            if result.stdout:
+                print(f"\n--- yt-dlp error output ---")
+                print(result.stdout)
+                print(f"--- end of error output ---\n")
+            
+            # Retry with cookies if 403 error
+            if is_403_error:
+                print(f"  [INFO] Detected 403 Forbidden error, retrying with cookies...")
+                return download_media_with_cookies(url, output_path, ffmpeg_location)
+            
             return False
             
     except Exception as e:
         print(f"  [ERROR] Exception: {e}")
+        return False
+
+def export_cookies_from_browser() -> bool:
+    """
+    Export cookies from Chrome browser to cookies.txt file
+    Returns True if successful, False otherwise
+    """
+    cookies_file = Path("./cookies.txt")
+    
+    print(f"\n  [INFO] Exporting cookies from Chrome to cookies.txt...")
+    
+    # Use yt-dlp to extract cookies from Chrome
+    cmd = [
+        YTDLP_BIN,
+        "--cookies-from-browser", "chrome",
+        "--cookies", str(cookies_file),
+        "--no-download",
+        "--simulate",
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ"  # Dummy URL to trigger cookie export
+    ]
+    
+    try:
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=30
+        )
+        
+        if cookies_file.exists() and cookies_file.stat().st_size > 0:
+            print(f"  [OK] Cookies exported to: {cookies_file.absolute()}")
+            return True
+        else:
+            print(f"  [WARNING] Could not export cookies")
+            return False
+            
+    except Exception as e:
+        print(f"  [WARNING] Failed to export cookies: {e}")
+        return False
+
+def download_media_with_cookies(url: str, output_path: Path, ffmpeg_location: str = None) -> bool:
+    """
+    Retry download with cookies for 403 errors
+    """
+    # Check for cookies.txt file in current directory
+    cookies_file = Path("./cookies.txt")
+    
+    # Try to export cookies from browser if file doesn't exist
+    if not cookies_file.exists():
+        print(f"  [INFO] cookies.txt not found, attempting to export from browser...")
+        export_cookies_from_browser()
+    
+    # Prepare command for retry
+    cmd = [
+        YTDLP_BIN,
+        "-o", str(output_path),
+        url
+    ]
+    
+    # Add cookies from file if exists
+    if cookies_file.exists():
+        print(f"  [INFO] Using cookies.txt file")
+        cmd.extend(["--cookies", str(cookies_file)])
+    else:
+        # Fallback to direct browser cookies
+        print(f"  [INFO] Using cookies from Chrome browser")
+        cmd.extend(["--cookies-from-browser", "chrome"])
+    
+    # Add ffmpeg location if custom path
+    if ffmpeg_location:
+        cmd.extend(["--ffmpeg-location", ffmpeg_location])
+    
+    print(f"  [INFO] Retrying download with cookies...")
+    
+    try:
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True
+        )
+        
+        if result.returncode == 0:
+            if output_path.exists() and output_path.stat().st_size > 0:
+                print(f"  [OK] Downloaded successfully with cookies")
+                return True
+            else:
+                print(f"  [ERROR] Output file missing or empty (with cookies)")
+                return False
+        else:
+            print(f"  [ERROR] Download failed even with cookies (exit code: {result.returncode})")
+            if result.stdout:
+                print(f"\n--- yt-dlp error output (with cookies) ---")
+                print(result.stdout)
+                print(f"--- end of error output ---\n")
+            return False
+            
+    except Exception as e:
+        print(f"  [ERROR] Exception during retry with cookies: {e}")
         return False
 
 def main():
