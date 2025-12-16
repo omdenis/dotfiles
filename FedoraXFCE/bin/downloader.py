@@ -195,6 +195,25 @@ def get_youtube_title(url: str) -> str:
         pass
     return None
 
+def get_unique_filepath(base_path: Path) -> Path:
+    """
+    Get unique filepath by adding _1, _2, etc. if file exists
+    Example: video.mp4 -> video_1.mp4 -> video_2.mp4
+    """
+    if not base_path.exists():
+        return base_path
+    
+    stem = base_path.stem
+    suffix = base_path.suffix
+    parent = base_path.parent
+    
+    counter = 1
+    while True:
+        new_path = parent / f"{stem}_{counter}{suffix}"
+        if not new_path.exists():
+            return new_path
+        counter += 1
+
 def get_filename_from_url(url: str, index: int) -> str:
     """
     Generate filename based on URL
@@ -476,13 +495,14 @@ def main():
             filename = get_filename_from_url(url, index)
             output_path = output_dir / filename
             
-            # Skip if already exists
+            # Check if file exists and get unique path
             if output_path.exists():
-                print(f"\n[{index}/{len(urls)}] Skipping (already exists): {filename}")
-                success_count += 1
-                continue
+                unique_path = get_unique_filepath(output_path)
+                print(f"\n[{index}/{len(urls)}] File exists, using: {unique_path.name}")
+                output_path = unique_path
+            else:
+                print(f"\n[{index}/{len(urls)}]")
             
-            print(f"\n[{index}/{len(urls)}]")
             if download_media(url, output_path):
                 success_count += 1
             else:
