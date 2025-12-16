@@ -27,6 +27,7 @@ Requirements:
     - yt-dlp installed in system
     - ffmpeg installed (custom path or system)
     - pip install curl-cffi
+    - pip install --upgrade yt-dlp
 """
 
 import sys
