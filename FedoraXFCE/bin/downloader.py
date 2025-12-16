@@ -38,20 +38,21 @@ from urllib.parse import urlparse
 
 # Configuration
 FFMPEG_PATH = Path("~/apps/ffmpeg/ffmpeg").expanduser()
-YTDLP_BIN = "yt-dlp"
+# Use yt-dlp as Python module to access venv dependencies (curl-cffi)
+YTDLP_BIN = [sys.executable, "-m", "yt_dlp"]
 
 def check_dependencies():
     """Check if yt-dlp and ffmpeg are available"""
     # Check yt-dlp
     try:
         result = subprocess.run(
-            [YTDLP_BIN, "--version"],
+            YTDLP_BIN + ["--version"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True
         )
         if result.returncode != 0:
-            print(f"ERROR: {YTDLP_BIN} not found in PATH")
+            print(f"ERROR: yt-dlp not found")
             print("Install: pip install yt-dlp")
             return False
         
@@ -62,7 +63,7 @@ def check_dependencies():
         # Check for updates
         try:
             update_check = subprocess.run(
-                [YTDLP_BIN, "--update-to", "stable", "--no-update"],
+                YTDLP_BIN + ["--update-to", "stable", "--no-update"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -77,7 +78,7 @@ def check_dependencies():
             else:
                 # Alternative check using -U --simulate
                 update_check2 = subprocess.run(
-                    [YTDLP_BIN, "-U"],
+                    YTDLP_BIN + ["-U"],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
@@ -177,8 +178,7 @@ def sanitize_filename(name: str) -> str:
 def get_youtube_title(url: str) -> str:
     """Get YouTube video title using yt-dlp"""
     try:
-        cmd = [
-            YTDLP_BIN,
+        cmd = YTDLP_BIN + [
             "--get-title",
             url
         ]
@@ -254,8 +254,7 @@ def download_media(url: str, output_path: Path) -> bool:
     # Check for cookies.txt file in current directory
     cookies_file = Path("./cookies.txt")
     
-    cmd = [
-        YTDLP_BIN,
+    cmd = YTDLP_BIN + [
         "-o", str(output_path),
         "--no-check-certificates",  # Skip SSL certificate verification
         "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -338,8 +337,7 @@ def export_cookies_from_browser() -> bool:
     print(f"\n  [INFO] Exporting cookies from Chrome to cookies.txt...")
     
     # Use yt-dlp to extract cookies from Chrome
-    cmd = [
-        YTDLP_BIN,
+    cmd = YTDLP_BIN + [
         "--cookies-from-browser", "chrome",
         "--cookies", str(cookies_file),
         "--no-download",
@@ -380,8 +378,7 @@ def download_media_with_cookies(url: str, output_path: Path, ffmpeg_location: st
         export_cookies_from_browser()
     
     # Prepare command for retry
-    cmd = [
-        YTDLP_BIN,
+    cmd = YTDLP_BIN + [
         "-o", str(output_path),
         "--no-check-certificates",
         "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -450,6 +447,17 @@ def main():
     if not check_dependencies():
         sys.exit(1)
     print("[OK] All dependencies available")
+    
+    # Check for cookies.txt and try to create if missing
+    cookies_file = Path("./cookies.txt")
+    if not cookies_file.exists():
+        print("\n[INFO] cookies.txt not found, attempting to export from Chrome...")
+        if export_cookies_from_browser():
+            print("[OK] Cookies exported successfully")
+        else:
+            print("[WARNING] Could not export cookies, will use browser cookies directly if needed")
+    else:
+        print(f"\n[OK] Found cookies.txt ({cookies_file.stat().st_size} bytes)")
     
     # Find .txt files
     root = Path(".").resolve()
