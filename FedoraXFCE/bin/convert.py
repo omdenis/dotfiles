@@ -46,11 +46,11 @@ def make_paths(src: Path, outdir: Path) -> tuple[Path, Path]:
 
 def complress_to_telegram(src: Path, dst: Path) -> None:
     """
-    Re-encode video only (no audio) to compact H.264 suitable for Telegram:
+    Re-encode to compact H.264 suitable for Telegram:
       - 15 fps
       - half resolution (scale by 0.5)
       - CRF 25, preset slow
-      - no audio
+      - mono 64k AAC audio
     """
     # Scale filter that ensures even dimensions (required for H.264)
     # trunc(iw/4)*2 = divide by 2 and round down to nearest even number
@@ -66,7 +66,7 @@ def complress_to_telegram(src: Path, dst: Path) -> None:
         "-r", "15",
         "-crf", "25",
         "-vcodec", "libx264", "-preset", "slow", "-profile:v", "main", "-pix_fmt", "yuv420p",
-        "-an",  # No audio
+        "-c:a", "aac", "-ac", "1", "-b:a", "64k",  # Mono 64k AAC audio
         "-movflags", "+faststart",
         str(dst),
     ]
