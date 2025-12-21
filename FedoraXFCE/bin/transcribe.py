@@ -181,7 +181,8 @@ def transcribe_file(
         print(f"    📝 Output will be: {output_file.name}")
     
     # Extract lightweight audio for Whisper processing
-    temp_audio = extract_audio_for_whisper(media_file, output_dir)
+    # Put temp file in source directory (not output directory)
+    temp_audio = extract_audio_for_whisper(media_file, media_file.parent)
     temp_created = (temp_audio != media_file)
     
     # Start timer
