@@ -12,16 +12,19 @@ Features:
 - Downloads media files using yt-dlp
 - Each .txt file creates its own output directory (named after the .txt file)
 - Files saved with numbered prefixes (001, 002, etc.)
-- For YouTube: uses video title in filename
+- For YouTube: uses video title with underscores + video ID in filename
 - For m3u8: uses m3u8 filename
-- Sanitizes filenames (only letters and numbers)
+- Automatically compresses videos to Telegram format (15fps, x2 smaller resolution)
+- Compressed files saved to ./telegram_15fps_x2/ subdirectory
 
 Usage:
     python downloader.py
     
 Example:
     files.txt → downloads to ./files/ directory
+              → compressed to ./files/telegram_15fps_x2/
     course.txt → downloads to ./course/ directory
+               → compressed to ./course/telegram_15fps_x2/
     
 Requirements:
     - yt-dlp installed in system
@@ -40,6 +43,62 @@ from urllib.parse import urlparse
 FFMPEG_PATH = Path("~/apps/ffmpeg/ffmpeg").expanduser()
 # Use yt-dlp as Python module to access venv dependencies (curl-cffi)
 YTDLP_BIN = [sys.executable, "-m", "yt_dlp"]
+
+def get_ffmpeg_command() -> str:
+    """Get ffmpeg executable path (custom or system)"""
+    if FFMPEG_PATH.exists():
+        return str(FFMPEG_PATH)
+    return "ffmpeg"
+
+def compress_to_telegram(src: Path, dst: Path) -> bool:
+    """
+    Re-encode to compact H.264 suitable for Telegram:
+      - 15 fps
+      - half resolution (scale by 0.5)
+      - CRF 25, preset slow
+      - mono 64k AAC audio
+    
+    Returns True if successful, False otherwise
+    """
+    # Scale filter that ensures even dimensions (required for H.264)
+    # trunc(iw/4)*2 = divide by 2 and round down to nearest even number
+    scale_filter = "scale=trunc(iw/4)*2:trunc(ih/4)*2:flags=lanczos"
+    
+    ffmpeg_cmd = get_ffmpeg_command()
+    
+    args = [
+        ffmpeg_cmd,
+        "-y",
+        "-i", str(src),
+        "-map_metadata", "-1",
+        "-max_muxing_queue_size", "512",
+        "-vf", scale_filter,
+        "-r", "15",
+        "-crf", "25",
+        "-vcodec", "libx264", "-preset", "slow", "-profile:v", "main", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-ac", "1", "-b:a", "64k",  # Mono 64k AAC audio
+        "-movflags", "+faststart",
+        str(dst),
+    ]
+    
+    try:
+        result = subprocess.run(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True
+        )
+        
+        if result.returncode == 0 and dst.exists() and dst.stat().st_size > 0:
+            return True
+        else:
+            print(f"  [ERROR] Compression failed:")
+            if result.stdout:
+                print(result.stdout)
+            return False
+    except Exception as e:
+        print(f"  [ERROR] Compression exception: {e}")
+        return False
 
 def check_dependencies():
     """Check if yt-dlp and ffmpeg are available"""
@@ -163,7 +222,7 @@ def is_youtube_url(url: str) -> bool:
     ]
     return any(pattern in url.lower() for pattern in youtube_patterns)
 
-def sanitize_filename(name: str) -> str:
+def sanitize_filename(name: str, keep_spaces: bool = False) -> str:
     """Remove all non-alphanumeric characters from filename"""
     # Remove extension if present
     name = Path(name).stem
@@ -171,9 +230,29 @@ def sanitize_filename(name: str) -> str:
     name = re.sub(r'[^a-zA-Z0-9а-яА-ЯёЁ\s]', '', name)
     # Replace multiple spaces with single space
     name = re.sub(r'\s+', ' ', name)
-    # Trim and remove spaces
-    name = name.strip().replace(' ', '')
+    # Trim
+    name = name.strip()
+    # Replace spaces with underscores if requested, otherwise remove
+    if keep_spaces:
+        name = name.replace(' ', '_')
+    else:
+        name = name.replace(' ', '')
     return name
+
+def get_youtube_id(url: str) -> str:
+    """Extract YouTube video ID from URL"""
+    # Patterns for different YouTube URL formats
+    patterns = [
+        r'(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})',
+        r'youtube\.com\/embed\/([a-zA-Z0-9_-]{11})',
+        r'youtube\.com\/v\/([a-zA-Z0-9_-]{11})',
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    return None
 
 def get_youtube_title(url: str) -> str:
     """Get YouTube video title using yt-dlp"""
@@ -217,7 +296,7 @@ def get_unique_filepath(base_path: Path) -> Path:
 def get_filename_from_url(url: str, index: int) -> str:
     """
     Generate filename based on URL
-    - YouTube: {index}_{sanitized_title}.mp4
+    - YouTube: {index}_{sanitized_title_with_underscores}_{video_id}.mp4
     - m3u8: {index}_{sanitized_m3u8_name}.mp4
     """
     prefix = f"{index:03d}"
@@ -225,10 +304,19 @@ def get_filename_from_url(url: str, index: int) -> str:
     if is_youtube_url(url):
         # Try to get YouTube title
         title = get_youtube_title(url)
+        video_id = get_youtube_id(url)
+        
         if title:
-            sanitized = sanitize_filename(title)
-            if sanitized:
+            # Keep spaces as underscores for readability
+            sanitized = sanitize_filename(title, keep_spaces=True)
+            if sanitized and video_id:
+                return f"{prefix}_{sanitized}_{video_id}.mp4"
+            elif sanitized:
                 return f"{prefix}_{sanitized}.mp4"
+        
+        # Fallback with video ID if available
+        if video_id:
+            return f"{prefix}_youtube_video_{video_id}.mp4"
         return f"{prefix}_youtube_video.mp4"
     else:
         # Extract filename from URL
@@ -494,6 +582,10 @@ def main():
         output_dir.mkdir(exist_ok=True)
         print(f"Output directory: {output_dir.name}/")
         
+        # Create compressed output directory
+        compressed_dir = output_dir / "telegram_15fps_x2"
+        compressed_dir.mkdir(exist_ok=True)
+        
         # Download each URL
         success_count = 0
         fail_count = 0
@@ -511,8 +603,18 @@ def main():
             else:
                 print(f"\n[{index}/{len(urls)}]")
             
+            # Download media
             if download_media(url, output_path):
-                success_count += 1
+                # Compress video to Telegram format
+                compressed_path = compressed_dir / output_path.name
+                print(f"  [INFO] Compressing to Telegram format (15fps, x2)...")
+                
+                if compress_to_telegram(output_path, compressed_path):
+                    print(f"  [OK] Compressed: {compressed_path.name}")
+                    success_count += 1
+                else:
+                    print(f"  [WARNING] Compression failed, but original file saved")
+                    success_count += 1
             else:
                 fail_count += 1
         
