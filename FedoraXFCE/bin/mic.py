@@ -72,7 +72,7 @@ def record_audio(output_path, model, default_language):
                     stop_recording = True
                 else:
                     # Add dot every 2 seconds
-                    if time.time() - last_dot_time >= 2:
+                    if time.time() - last_dot_time >= 1:
                         sys.stdout.write(".")
                         sys.stdout.flush()
                         last_dot_time = time.time()
