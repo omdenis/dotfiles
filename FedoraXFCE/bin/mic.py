@@ -112,8 +112,8 @@ class Spinner:
         sys.stdout.flush()
 
 
-def transcribe_audio(audio_path, model_name, language):
-    """Transcribe audio using Whisper."""
+def load_whisper_model(model_name):
+    """Load Whisper model."""
     try:
         import whisper
     except ImportError:
@@ -121,8 +121,11 @@ def transcribe_audio(audio_path, model_name, language):
         sys.exit(1)
 
     warnings.filterwarnings("ignore", message="FP16 is not supported on CPU")
+    return whisper.load_model(model_name)
 
-    model = whisper.load_model(model_name)
+
+def transcribe_audio(audio_path, model, language):
+    """Transcribe audio using Whisper."""
     result = model.transcribe(audio_path, language=language)
     return result["text"].strip()
 
@@ -186,44 +189,68 @@ def main():
     )
     args = parser.parse_args()
 
+    # Load model once
+    print(f"Loading {args.model} model...")
+    whisper_model = load_whisper_model(args.model)
+    print("Ready!\n")
+
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
         audio_path = tmp_file.name
 
     try:
-        success, language = record_audio(audio_path, args.model, args.language)
-        if not success:
-            return 1
+        while True:
+            success, language = record_audio(audio_path, args.model, args.language)
+            if not success:
+                continue
 
-        spinner = Spinner()
-        spinner.start()
-        start_time = time.time()
-        text = transcribe_audio(audio_path, args.model, language)
-        elapsed = time.time() - start_time
-        spinner.stop()
+            spinner = Spinner()
+            spinner.start()
+            start_time = time.time()
+            text = transcribe_audio(audio_path, whisper_model, language)
+            elapsed = time.time() - start_time
+            spinner.stop()
 
-        if not text:
-            return 1
+            if not text:
+                continue
 
-        # Copy original to clipboard
-        copy_to_clipboard(text)
+            # Copy original to clipboard
+            copy_to_clipboard(text)
 
-        # Translate to all languages
-        all_langs = [("en", "EN"), ("ru", "RU"), ("da", "DA"), ("es", "ES")]
-        translations = {}
-        for lang_code, flag in all_langs:
-            if lang_code == language:
-                translations[lang_code] = text
-            else:
-                translations[lang_code] = translate_text(text, language, lang_code)
+            # Translate to all languages
+            all_langs = [("en", "EN"), ("ru", "RU"), ("da", "DA"), ("es", "ES")]
+            translations = {}
+            for lang_code, _ in all_langs:
+                if lang_code == language:
+                    translations[lang_code] = text
+                else:
+                    translations[lang_code] = translate_text(text, language, lang_code)
 
-        word_count = len(text.split())
-        print("-" * 42)
-        lines = [translations[lang_code] for lang_code, _ in all_langs]
-        print("\n\n".join(lines))
-        print("-" * 42)
-        print(f"Words: {word_count} | Time: {elapsed:.1f}s")
-        time.sleep(3)
+            word_count = len(text.split())
+            print("-" * 42)
+            lines = [translations[lang_code] for lang_code, _ in all_langs]
+            print("\n".join(lines))
+            print("-" * 42)
+            print(f"Words: {word_count} | Time: {elapsed:.1f}s")
+            print("1-EN  2-RU  3-DA  4-ES  Enter-Rec  Ctrl+C-Exit")
 
+            # Wait for language selection or Enter
+            old_settings = termios.tcgetattr(sys.stdin)
+            try:
+                tty.setcbreak(sys.stdin.fileno())
+                while True:
+                    key = sys.stdin.read(1)
+                    if key == "\n" or key == "\r":
+                        break
+                    elif key in LANGUAGES:
+                        args.language = LANGUAGES[key][0]
+                        print(f"-> {LANGUAGES[key][1]}")
+                        break
+            finally:
+                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+            print()
+
+    except KeyboardInterrupt:
+        pass
     finally:
         if os.path.exists(audio_path):
             os.remove(audio_path)
