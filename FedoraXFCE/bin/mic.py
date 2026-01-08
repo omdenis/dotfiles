@@ -20,19 +20,20 @@ import warnings
 SAMPLE_RATE = 16000
 CHANNELS = 1
 
-# Language mapping
+# Language mapping (code, label)
 LANGUAGES = {
-    "1": ("en", "English"),
-    "2": ("ru", "Russian"),
-    "3": ("da", "Danish"),
+    "1": ("en", "EN"),
+    "2": ("ru", "RU"),
+    "3": ("da", "DA"),
+    "4": ("es", "ES"),
 }
 
 
 def print_recording_help(model, language):
     """Print help message during recording."""
-    lang_name = dict((v[0], v[1]) for v in LANGUAGES.values()).get(language, language)
-    print(f"Model: {model} | Language: {lang_name}")
-    print("1-English  2-Russian  3-Danish  Enter-Stop")
+    flag = dict((v[0], v[1]) for v in LANGUAGES.values()).get(language, language)
+    print(f"Model: {model} | {flag}")
+    print("1-EN  2-RU  3-DA  4-ES  Enter-Stop")
     print("-" * 42)
 
 
@@ -126,6 +127,18 @@ def transcribe_audio(audio_path, model_name, language):
     return result["text"].strip()
 
 
+def translate_text(text, source_lang, target_lang):
+    """Translate text using Google Translate."""
+    try:
+        from deep_translator import GoogleTranslator
+    except ImportError:
+        print("pip install deep-translator")
+        sys.exit(1)
+
+    translator = GoogleTranslator(source=source_lang, target=target_lang)
+    return translator.translate(text)
+
+
 def copy_to_clipboard(text):
     """Copy text to clipboard using xclip."""
     try:
@@ -168,7 +181,7 @@ def main():
         "-l", "--language",
         type=str,
         default="ru",
-        choices=["en", "ru", "da"],
+        choices=["en", "ru", "da", "es"],
         help="Language (default: ru)"
     )
     args = parser.parse_args()
@@ -191,11 +204,22 @@ def main():
         if not text:
             return 1
 
+        # Copy original to clipboard
         copy_to_clipboard(text)
+
+        # Translate to all languages
+        all_langs = [("en", "EN"), ("ru", "RU"), ("da", "DA"), ("es", "ES")]
+        translations = {}
+        for lang_code, flag in all_langs:
+            if lang_code == language:
+                translations[lang_code] = text
+            else:
+                translations[lang_code] = translate_text(text, language, lang_code)
 
         word_count = len(text.split())
         print("-" * 42)
-        print(text)
+        lines = [translations[lang_code] for lang_code, _ in all_langs]
+        print("\n\n".join(lines))
         print("-" * 42)
         print(f"Words: {word_count} | Time: {elapsed:.1f}s")
         time.sleep(3)
