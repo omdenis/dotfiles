@@ -141,6 +141,21 @@ def copy_to_clipboard(text):
 
 
 def main():
+    # Relaunch in terminal if not running in one
+    if not sys.stdin.isatty():
+        script = os.path.abspath(__file__)
+        cmd = [
+            "xfce4-terminal",
+            "--geometry=50x12",
+            "--hide-menubar",
+            "--hide-toolbar",
+            "--hide-scrollbar",
+            "--title=Voice Input",
+            "-x", "python3", script
+        ] + sys.argv[1:]
+        subprocess.run(cmd)
+        return 0
+
     parser = argparse.ArgumentParser(description="Voice-to-text input tool")
     parser.add_argument(
         "-m", "--model",
