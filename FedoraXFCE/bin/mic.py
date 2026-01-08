@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Voice-to-text input tool.
-Records audio from microphone, transcribes with Whisper, and pastes into active window.
+Records audio from microphone, transcribes with Whisper, copies to clipboard.
 """
 
 import subprocess
@@ -26,50 +26,39 @@ LANGUAGES = {
 }
 
 
-def print_recording_help():
+def print_recording_help(model, language):
     """Print help message during recording."""
-    print("\n" + "=" * 50)
-    print("RECORDING... Press Enter to stop")
-    print("=" * 50)
-    print("Language selection (press during recording):")
-    print("  1 - English")
-    print("  2 - Russian")
-    print("  3 - Danish")
-    print("  (default: auto-detect)")
-    print("=" * 50 + "\n")
+    lang_name = dict((v[0], v[1]) for v in LANGUAGES.values()).get(language, language)
+    print(f"Model: {model} | Language: {lang_name}")
+    print("1-English  2-Russian  3-Danish  Enter-Stop")
+    print("-" * 42)
 
 
-def record_audio(output_path, duration=None):
-    """
-    Record audio from microphone.
-    Returns (success, language_code).
-    """
+def record_audio(output_path, model, default_language):
+    """Record audio from microphone. Returns (success, language_code)."""
     try:
         import sounddevice as sd
         import numpy as np
         from scipy.io import wavfile
     except ImportError:
-        print("Error: Required packages not installed.")
-        print("Run: pip install sounddevice numpy scipy")
+        print("pip install sounddevice numpy scipy")
         sys.exit(1)
 
-    language = None
+    language = default_language
     recording = []
     stop_recording = False
 
     def audio_callback(indata, frames, time_info, status):
         recording.append(indata.copy())
 
-    # Setup terminal for non-blocking input
     old_settings = termios.tcgetattr(sys.stdin)
 
     try:
         tty.setcbreak(sys.stdin.fileno())
-        print_recording_help()
+        print_recording_help(model, language)
 
         with sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS, callback=audio_callback):
             while not stop_recording:
-                # Check for keyboard input (non-blocking)
                 if select.select([sys.stdin], [], [], 0.1)[0]:
                     key = sys.stdin.read(1)
                     if key == "\n" or key == "\r":
@@ -77,44 +66,31 @@ def record_audio(output_path, duration=None):
                     elif key in LANGUAGES:
                         lang_code, lang_name = LANGUAGES[key]
                         language = lang_code
-                        print(f"\r>> Language set: {lang_name}          ")
+                        print(f"\r-> {lang_name}                    ")
 
     finally:
         termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
 
-    if recording:
-        audio_data = np.concatenate(recording, axis=0)
-    else:
-        print("No audio recorded.")
+    if not recording:
         return False, None
 
-    # Convert to int16 for WAV file
+    audio_data = np.concatenate(recording, axis=0)
     audio_int16 = (audio_data * 32767).astype(np.int16)
     wavfile.write(output_path, SAMPLE_RATE, audio_int16)
 
-    print("\nRecording stopped.")
     return True, language
 
 
-def transcribe_audio(audio_path, model_name="turbo", language=None):
+def transcribe_audio(audio_path, model_name, language):
     """Transcribe audio using Whisper."""
     try:
         import whisper
     except ImportError:
-        print("Error: whisper not installed.")
-        print("Run: pip install openai-whisper")
+        print("pip install openai-whisper")
         sys.exit(1)
 
-    lang_str = language if language else "auto-detect"
-    print(f"Transcribing with Whisper ({model_name} model, language: {lang_str})...")
-
     model = whisper.load_model(model_name)
-
-    if language:
-        result = model.transcribe(audio_path, language=language)
-    else:
-        result = model.transcribe(audio_path)
-
+    result = model.transcribe(audio_path, language=language)
     return result["text"].strip()
 
 
@@ -128,7 +104,7 @@ def copy_to_clipboard(text):
         process.communicate(input=text.encode("utf-8"))
         return True
     except FileNotFoundError:
-        print("Error: xclip not found. Install with: sudo dnf install xclip")
+        print("sudo dnf install xclip")
         return False
 
 
@@ -139,51 +115,42 @@ def main():
         type=str,
         default="turbo",
         choices=["tiny", "base", "small", "medium", "large", "turbo"],
-        help="Whisper model to use (default: turbo)"
+        help="Whisper model (default: turbo)"
     )
     parser.add_argument(
         "-l", "--language",
         type=str,
-        default=None,
+        default="ru",
         choices=["en", "ru", "da"],
-        help="Force language (default: auto-detect)"
+        help="Language (default: ru)"
     )
     args = parser.parse_args()
 
-    # Record audio to temporary file
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
         audio_path = tmp_file.name
 
     try:
-        success, language = record_audio(audio_path)
+        success, language = record_audio(audio_path, args.model, args.language)
         if not success:
             return 1
 
-        # Command line language overrides interactive selection
-        if args.language:
-            language = args.language
-
-        # Transcribe audio
+        start_time = time.time()
         text = transcribe_audio(audio_path, args.model, language)
+        elapsed = time.time() - start_time
 
         if not text:
-            print("No speech detected.")
             return 1
 
-        # Copy to clipboard
-        if not copy_to_clipboard(text):
-            return 1
+        copy_to_clipboard(text)
 
-        print("\n" + "=" * 50)
-        print("TRANSCRIBED TEXT:")
-        print("=" * 50)
+        word_count = len(text.split())
+        print("-" * 42)
         print(text)
-        print("=" * 50)
-        print("Copied to clipboard. Closing in 3 seconds...")
+        print("-" * 42)
+        print(f"Words: {word_count} | Time: {elapsed:.1f}s")
         time.sleep(3)
 
     finally:
-        # Clean up temporary file
         if os.path.exists(audio_path):
             os.remove(audio_path)
 
