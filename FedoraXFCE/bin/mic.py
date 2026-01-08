@@ -38,7 +38,7 @@ def print_recording_help(model, language):
 
 
 def record_audio(output_path, model, default_language):
-    """Record audio from microphone. Returns (success, language_code)."""
+    """Record audio from microphone. Returns (success, language_code, next_language)."""
     try:
         import sounddevice as sd
         import numpy as np
@@ -48,8 +48,11 @@ def record_audio(output_path, model, default_language):
         sys.exit(1)
 
     language = default_language
+    next_language = None
     recording = []
     stop_recording = False
+    last_dot_time = time.time()
+    dot_count = 0
 
     def audio_callback(indata, frames, time_info, status):
         recording.append(indata.copy())
@@ -64,24 +67,30 @@ def record_audio(output_path, model, default_language):
             while not stop_recording:
                 if select.select([sys.stdin], [], [], 0.1)[0]:
                     key = sys.stdin.read(1)
-                    if key == "\n" or key == "\r":
-                        stop_recording = True
-                    elif key in LANGUAGES:
-                        lang_code, lang_name = LANGUAGES[key]
-                        language = lang_code
-                        print(f"\r-> {lang_name}                    ")
+                    if key in LANGUAGES:
+                        next_language = LANGUAGES[key][0]
+                    stop_recording = True
+                else:
+                    # Add dot every 2 seconds
+                    if time.time() - last_dot_time >= 2:
+                        sys.stdout.write(".")
+                        sys.stdout.flush()
+                        last_dot_time = time.time()
+                        dot_count += 1
+
+        print()  # New line after recording
 
     finally:
         termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
 
     if not recording:
-        return False, None
+        return False, None, next_language
 
     audio_data = np.concatenate(recording, axis=0)
     audio_int16 = (audio_data * 32767).astype(np.int16)
     wavfile.write(output_path, SAMPLE_RATE, audio_int16)
 
-    return True, language
+    return True, language, next_language
 
 
 class Spinner:
@@ -197,9 +206,16 @@ def main():
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
         audio_path = tmp_file.name
 
+    current_language = args.language
+
     try:
         while True:
-            success, language = record_audio(audio_path, args.model, args.language)
+            success, language, next_language = record_audio(audio_path, args.model, current_language)
+
+            # Update language for next recording
+            if next_language:
+                current_language = next_language
+
             if not success:
                 continue
 
@@ -211,6 +227,7 @@ def main():
             spinner.stop()
 
             if not text:
+                print()
                 continue
 
             # Copy original to clipboard
@@ -231,20 +248,15 @@ def main():
             print("\n".join(lines))
             print("-" * 42)
             print(f"Words: {word_count} | Time: {elapsed:.1f}s")
-            print("1-EN  2-RU  3-DA  4-ES  Enter-Rec  Ctrl+C-Exit")
+            print("Press any key...")
 
-            # Wait for language selection or Enter
+            # Wait for any key
             old_settings = termios.tcgetattr(sys.stdin)
             try:
                 tty.setcbreak(sys.stdin.fileno())
-                while True:
-                    key = sys.stdin.read(1)
-                    if key == "\n" or key == "\r":
-                        break
-                    elif key in LANGUAGES:
-                        args.language = LANGUAGES[key][0]
-                        print(f"-> {LANGUAGES[key][1]}")
-                        break
+                key = sys.stdin.read(1)
+                if key in LANGUAGES:
+                    current_language = LANGUAGES[key][0]
             finally:
                 termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
             print()
