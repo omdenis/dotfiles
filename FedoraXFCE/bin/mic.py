@@ -26,27 +26,6 @@ LANGUAGES = {
 }
 
 
-def get_active_window():
-    """Get the currently active window ID using xdotool."""
-    try:
-        result = subprocess.run(
-            ["xdotool", "getactivewindow"],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        return result.stdout.strip()
-    except subprocess.CalledProcessError:
-        return None
-
-
-def focus_window(window_id):
-    """Focus on a specific window."""
-    if window_id:
-        subprocess.run(["xdotool", "windowactivate", window_id], check=False)
-        time.sleep(0.1)
-
-
 def print_recording_help():
     """Print help message during recording."""
     print("\n" + "=" * 50)
@@ -153,11 +132,6 @@ def copy_to_clipboard(text):
         return False
 
 
-def paste_from_clipboard():
-    """Paste from clipboard using xdotool."""
-    subprocess.run(["xdotool", "key", "ctrl+v"], check=False)
-
-
 def main():
     parser = argparse.ArgumentParser(description="Voice-to-text input tool")
     parser.add_argument(
@@ -174,15 +148,7 @@ def main():
         choices=["en", "ru", "da"],
         help="Force language (default: auto-detect)"
     )
-    parser.add_argument(
-        "--no-paste",
-        action="store_true",
-        help="Only copy to clipboard, don't paste"
-    )
     args = parser.parse_args()
-
-    # Save current active window
-    original_window = get_active_window()
 
     # Record audio to temporary file
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
