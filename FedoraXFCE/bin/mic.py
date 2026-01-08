@@ -165,6 +165,34 @@ def copy_to_clipboard(text):
         return False
 
 
+def speak_text(text, lang="da"):
+    """Speak text using gTTS."""
+    try:
+        from gtts import gTTS
+        os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
+        import pygame
+    except ImportError:
+        print("pip install gtts pygame")
+        return
+
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+        tts_path = f.name
+
+    try:
+        tts = gTTS(text=text, lang=lang)
+        tts.save(tts_path)
+
+        pygame.mixer.init()
+        pygame.mixer.music.load(tts_path)
+        pygame.mixer.music.play()
+        while pygame.mixer.music.get_busy():
+            time.sleep(0.1)
+        pygame.mixer.quit()
+    finally:
+        if os.path.exists(tts_path):
+            os.remove(tts_path)
+
+
 def main():
     # Relaunch in terminal if not running in one
     if not sys.stdin.isatty():
@@ -190,13 +218,63 @@ def main():
         help="Whisper model"
     )
     parser.add_argument(
-        "-l", "--language",
+        "--listen",
         type=str,
-        default="ru",
+        default=None,
         choices=["en", "ru", "da", "es"],
-        help="Language (default: ru)"
+        help="Language to listen (default: ru)"
+    )
+    parser.add_argument(
+        "--clipboard",
+        type=str,
+        default=None,
+        choices=["en", "ru", "da", "es"],
+        help="Language to copy to clipboard (default: en)"
+    )
+    parser.add_argument(
+        "--speak",
+        type=str,
+        default=None,
+        choices=["en", "ru", "da", "es"],
+        help="Language to speak (default: da)"
     )
     args = parser.parse_args()
+
+    # Configuration presets
+    PRESETS = {
+        "1": ("ru", "en", "da"),
+        "2": ("ru", "ru", "da"),
+        "3": ("ru", "en", "en"),
+    }
+
+    # If no language args provided, show menu
+    if args.listen is None and args.clipboard is None and args.speak is None:
+        print("Select configuration:")
+        print("1) RU -> EN -> DA (listen RU, copy EN, speak DA)")
+        print("2) RU -> RU -> DA (listen RU, copy RU, speak DA)")
+        print("3) RU -> EN -> EN (listen RU, copy EN, speak EN)")
+        print("-" * 42)
+
+        old_settings = termios.tcgetattr(sys.stdin)
+        try:
+            tty.setcbreak(sys.stdin.fileno())
+            while True:
+                key = sys.stdin.read(1)
+                if key in PRESETS:
+                    args.listen, args.clipboard, args.speak = PRESETS[key]
+                    break
+                elif key == "\n" or key == "\r":
+                    args.listen, args.clipboard, args.speak = PRESETS["1"]
+                    break
+        finally:
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+    else:
+        # Set defaults for any missing args
+        args.listen = args.listen or "ru"
+        args.clipboard = args.clipboard or "en"
+        args.speak = args.speak or "da"
+
+    print(f"Config: {args.listen.upper()} -> {args.clipboard.upper()} -> {args.speak.upper()}")
 
     # Load model once
     print(f"Loading {args.model} model...")
@@ -206,7 +284,7 @@ def main():
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
         audio_path = tmp_file.name
 
-    current_language = args.language
+    current_language = args.listen
 
     try:
         while True:
@@ -230,9 +308,6 @@ def main():
                 print()
                 continue
 
-            # Copy original to clipboard
-            copy_to_clipboard(text)
-
             # Translate to all languages
             all_langs = [("en", "EN"), ("ru", "RU"), ("da", "DA"), ("es", "ES")]
             translations = {}
@@ -242,12 +317,19 @@ def main():
                 else:
                     translations[lang_code] = translate_text(text, language, lang_code)
 
+            # Copy selected language to clipboard
+            copy_to_clipboard(translations[args.clipboard])
+
             word_count = len(text.split())
             print("-" * 42)
             lines = [translations[lang_code] for lang_code, _ in all_langs]
             print("\n".join(lines))
             print("-" * 42)
             print(f"Words: {word_count} | Time: {elapsed:.1f}s")
+
+            # Speak selected language
+            speak_text(translations[args.speak], args.speak)
+
             print("Press any key...")
 
             # Wait for any key
