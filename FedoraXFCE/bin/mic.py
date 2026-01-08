@@ -10,10 +10,20 @@ import os
 import sys
 import time
 import argparse
+import select
+import termios
+import tty
 
 # Audio recording settings
 SAMPLE_RATE = 16000
 CHANNELS = 1
+
+# Language mapping
+LANGUAGES = {
+    "1": ("en", "English"),
+    "2": ("ru", "Russian"),
+    "3": ("da", "Danish"),
+}
 
 
 def get_active_window():
@@ -37,10 +47,23 @@ def focus_window(window_id):
         time.sleep(0.1)
 
 
+def print_recording_help():
+    """Print help message during recording."""
+    print("\n" + "=" * 50)
+    print("RECORDING... Press Enter to stop")
+    print("=" * 50)
+    print("Language selection (press during recording):")
+    print("  1 - English")
+    print("  2 - Russian")
+    print("  3 - Danish")
+    print("  (default: auto-detect)")
+    print("=" * 50 + "\n")
+
+
 def record_audio(output_path, duration=None):
     """
     Record audio from microphone.
-    If duration is None, records until Enter is pressed.
+    Returns (success, language_code).
     """
     try:
         import sounddevice as sd
@@ -51,42 +74,50 @@ def record_audio(output_path, duration=None):
         print("Run: pip install sounddevice numpy scipy")
         sys.exit(1)
 
-    print("Recording... Press Enter to stop." if duration is None else f"Recording for {duration} seconds...")
+    language = None
+    recording = []
+    stop_recording = False
 
-    if duration is None:
-        # Record until Enter is pressed
-        recording = []
+    def audio_callback(indata, frames, time_info, status):
+        recording.append(indata.copy())
 
-        def callback(indata, frames, time_info, status):
-            recording.append(indata.copy())
+    # Setup terminal for non-blocking input
+    old_settings = termios.tcgetattr(sys.stdin)
 
-        with sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS, callback=callback):
-            input()  # Wait for Enter
+    try:
+        tty.setcbreak(sys.stdin.fileno())
+        print_recording_help()
 
-        if recording:
-            audio_data = np.concatenate(recording, axis=0)
-        else:
-            print("No audio recorded.")
-            return False
+        with sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS, callback=audio_callback):
+            while not stop_recording:
+                # Check for keyboard input (non-blocking)
+                if select.select([sys.stdin], [], [], 0.1)[0]:
+                    key = sys.stdin.read(1)
+                    if key == "\n" or key == "\r":
+                        stop_recording = True
+                    elif key in LANGUAGES:
+                        lang_code, lang_name = LANGUAGES[key]
+                        language = lang_code
+                        print(f"\r>> Language set: {lang_name}          ")
+
+    finally:
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+
+    if recording:
+        audio_data = np.concatenate(recording, axis=0)
     else:
-        # Record for specified duration
-        audio_data = sd.rec(
-            int(duration * SAMPLE_RATE),
-            samplerate=SAMPLE_RATE,
-            channels=CHANNELS,
-            dtype=np.float32
-        )
-        sd.wait()
+        print("No audio recorded.")
+        return False, None
 
     # Convert to int16 for WAV file
     audio_int16 = (audio_data * 32767).astype(np.int16)
     wavfile.write(output_path, SAMPLE_RATE, audio_int16)
 
-    print("Recording stopped.")
-    return True
+    print("\nRecording stopped.")
+    return True, language
 
 
-def transcribe_audio(audio_path, model_name="base"):
+def transcribe_audio(audio_path, model_name="turbo", language=None):
     """Transcribe audio using Whisper."""
     try:
         import whisper
@@ -95,9 +126,16 @@ def transcribe_audio(audio_path, model_name="base"):
         print("Run: pip install openai-whisper")
         sys.exit(1)
 
-    print(f"Transcribing with Whisper ({model_name} model)...")
+    lang_str = language if language else "auto-detect"
+    print(f"Transcribing with Whisper ({model_name} model, language: {lang_str})...")
+
     model = whisper.load_model(model_name)
-    result = model.transcribe(audio_path)
+
+    if language:
+        result = model.transcribe(audio_path, language=language)
+    else:
+        result = model.transcribe(audio_path)
+
     return result["text"].strip()
 
 
@@ -123,17 +161,18 @@ def paste_from_clipboard():
 def main():
     parser = argparse.ArgumentParser(description="Voice-to-text input tool")
     parser.add_argument(
-        "-d", "--duration",
-        type=float,
-        default=None,
-        help="Recording duration in seconds (default: record until Enter)"
-    )
-    parser.add_argument(
         "-m", "--model",
         type=str,
-        default="base",
-        choices=["tiny", "base", "small", "medium", "large"],
-        help="Whisper model to use (default: base)"
+        default="turbo",
+        choices=["tiny", "base", "small", "medium", "large", "turbo"],
+        help="Whisper model to use (default: turbo)"
+    )
+    parser.add_argument(
+        "-l", "--language",
+        type=str,
+        default=None,
+        choices=["en", "ru", "da"],
+        help="Force language (default: auto-detect)"
     )
     parser.add_argument(
         "--no-paste",
@@ -144,37 +183,38 @@ def main():
 
     # Save current active window
     original_window = get_active_window()
-    print(f"Active window saved: {original_window}")
 
     # Record audio to temporary file
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
         audio_path = tmp_file.name
 
     try:
-        if not record_audio(audio_path, args.duration):
+        success, language = record_audio(audio_path)
+        if not success:
             return 1
 
+        # Command line language overrides interactive selection
+        if args.language:
+            language = args.language
+
         # Transcribe audio
-        text = transcribe_audio(audio_path, args.model)
+        text = transcribe_audio(audio_path, args.model, language)
 
         if not text:
             print("No speech detected.")
             return 1
 
-        print(f"Transcribed: {text}")
-
         # Copy to clipboard
         if not copy_to_clipboard(text):
             return 1
 
-        if not args.no_paste:
-            # Return focus to original window and paste
-            focus_window(original_window)
-            time.sleep(0.1)
-            paste_from_clipboard()
-            print("Text pasted.")
-        else:
-            print("Text copied to clipboard.")
+        print("\n" + "=" * 50)
+        print("TRANSCRIBED TEXT:")
+        print("=" * 50)
+        print(text)
+        print("=" * 50)
+        print("Copied to clipboard. Closing in 3 seconds...")
+        time.sleep(3)
 
     finally:
         # Clean up temporary file
