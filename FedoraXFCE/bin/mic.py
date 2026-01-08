@@ -145,7 +145,7 @@ def main():
     parser.add_argument(
         "-m", "--model",
         type=str,
-        default="turbo",
+        default="base",
         choices=["tiny", "base", "small", "medium", "large", "turbo"],
         help="Whisper model (default: turbo)"
     )
