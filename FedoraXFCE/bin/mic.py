@@ -13,6 +13,8 @@ import argparse
 import select
 import termios
 import tty
+import threading
+import warnings
 
 # Audio recording settings
 SAMPLE_RATE = 16000
@@ -81,6 +83,34 @@ def record_audio(output_path, model, default_language):
     return True, language
 
 
+class Spinner:
+    """Simple spinner for progress indication."""
+    def __init__(self):
+        self.spinning = False
+        self.thread = None
+        self.chars = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+    def start(self):
+        self.spinning = True
+        self.thread = threading.Thread(target=self._spin)
+        self.thread.start()
+
+    def _spin(self):
+        i = 0
+        while self.spinning:
+            sys.stdout.write(f"\r{self.chars[i % len(self.chars)]} ")
+            sys.stdout.flush()
+            i += 1
+            time.sleep(0.1)
+
+    def stop(self):
+        self.spinning = False
+        if self.thread:
+            self.thread.join()
+        sys.stdout.write("\r  \r")
+        sys.stdout.flush()
+
+
 def transcribe_audio(audio_path, model_name, language):
     """Transcribe audio using Whisper."""
     try:
@@ -88,6 +118,8 @@ def transcribe_audio(audio_path, model_name, language):
     except ImportError:
         print("pip install openai-whisper")
         sys.exit(1)
+
+    warnings.filterwarnings("ignore", message="FP16 is not supported on CPU")
 
     model = whisper.load_model(model_name)
     result = model.transcribe(audio_path, language=language)
@@ -134,9 +166,12 @@ def main():
         if not success:
             return 1
 
+        spinner = Spinner()
+        spinner.start()
         start_time = time.time()
         text = transcribe_audio(audio_path, args.model, language)
         elapsed = time.time() - start_time
+        spinner.stop()
 
         if not text:
             return 1
