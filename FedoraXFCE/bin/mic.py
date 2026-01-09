@@ -98,32 +98,34 @@ def record_audio(output_path, model, default_language):
     return True, language, next_language
 
 
-class Spinner:
-    """Simple spinner for progress indication."""
-    def __init__(self):
-        self.spinning = False
+class DotProgress:
+    """Shows dots during long operations."""
+    def __init__(self, interval=0.5):
+        self.running = False
         self.thread = None
-        self.chars = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+        self.interval = interval
 
     def start(self):
-        self.spinning = True
-        self.thread = threading.Thread(target=self._spin)
+        self.running = True
+        sys.stdout.write(".")
+        sys.stdout.flush()
+        self.thread = threading.Thread(target=self._dots)
         self.thread.start()
 
-    def _spin(self):
-        i = 0
-        while self.spinning:
-            sys.stdout.write(f"\r{self.chars[i % len(self.chars)]} ")
-            sys.stdout.flush()
-            i += 1
+    def _dots(self):
+        last_time = time.time()
+        while self.running:
             time.sleep(0.1)
+            if self.running and time.time() - last_time >= self.interval:
+                sys.stdout.write(".")
+                sys.stdout.flush()
+                last_time = time.time()
 
     def stop(self):
-        self.spinning = False
+        self.running = False
         if self.thread:
             self.thread.join()
-        sys.stdout.write("\r  \r")
-        sys.stdout.flush()
+        print()
 
 
 def load_whisper_model(model_name):
@@ -302,18 +304,20 @@ def main():
             if not success:
                 continue
 
-            spinner = Spinner()
-            spinner.start()
+            # Transcribe with dots
+            dots = DotProgress()
+            dots.start()
             start_time = time.time()
             text = transcribe_audio(audio_path, whisper_model, language)
             elapsed = time.time() - start_time
-            spinner.stop()
+            dots.stop()
 
             if not text:
-                print()
                 continue
 
-            # Translate to all languages
+            # Translate to all languages with dots
+            dots = DotProgress()
+            dots.start()
             all_langs = [("en", "EN"), ("ru", "RU"), ("da", "DA"), ("es", "ES")]
             translations = {}
             for lang_code, _ in all_langs:
@@ -321,6 +325,7 @@ def main():
                     translations[lang_code] = text
                 else:
                     translations[lang_code] = translate_text(text, language, lang_code)
+            dots.stop()
 
             # Copy selected language to clipboard
             copy_to_clipboard(translations[args.clipboard])
@@ -332,8 +337,11 @@ def main():
             print("-" * 42)
             print(f"Words: {word_count} | Time: {elapsed:.1f}s")
 
-            # Speak selected language
+            # Speak selected language with dots
+            dots = DotProgress()
+            dots.start()
             speak_text(translations[args.speak], args.speak)
+            dots.stop()
 
             print("Press any key...")
 
