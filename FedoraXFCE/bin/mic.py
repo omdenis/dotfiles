@@ -327,6 +327,9 @@ def main():
             if not text:
                 continue
 
+            # Copy raw transcription immediately
+            copy_to_clipboard(text)
+
             # Translate to all languages with dots
             dots = DotProgress()
             dots.start()
