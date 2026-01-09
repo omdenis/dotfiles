@@ -172,23 +172,35 @@ def copy_to_clipboard(text):
         return False
 
 
-def speak_text(text, lang="da"):
-    """Speak text using gTTS."""
+def prepare_speech(text, lang="da"):
+    """Prepare speech audio file using gTTS. Returns path to audio file."""
     try:
         from gtts import gTTS
-        os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
-        import pygame
     except ImportError:
-        print("pip install gtts pygame")
-        return
+        print("pip install gtts")
+        return None
 
     with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
         tts_path = f.name
 
-    try:
-        tts = gTTS(text=text, lang=lang)
-        tts.save(tts_path)
+    tts = gTTS(text=text, lang=lang)
+    tts.save(tts_path)
+    return tts_path
 
+
+def play_speech(tts_path):
+    """Play prepared speech audio file."""
+    if not tts_path:
+        return
+
+    try:
+        os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
+        import pygame
+    except ImportError:
+        print("pip install pygame")
+        return
+
+    try:
         pygame.mixer.init()
         pygame.mixer.music.load(tts_path)
         pygame.mixer.music.play()
@@ -327,9 +339,16 @@ def main():
                     translations[lang_code] = translate_text(text, language, lang_code)
             dots.stop()
 
+            # Prepare speech with dots
+            dots = DotProgress()
+            dots.start()
+            tts_path = prepare_speech(translations[args.speak], args.speak)
+            dots.stop()
+
             # Copy selected language to clipboard
             copy_to_clipboard(translations[args.clipboard])
 
+            # Show results
             word_count = len(text.split())
             print("-" * 42)
             lines = [translations[lang_code] for lang_code, _ in all_langs]
@@ -337,11 +356,8 @@ def main():
             print("-" * 42)
             print(f"Words: {word_count} | Time: {elapsed:.1f}s")
 
-            # Speak selected language with dots
-            dots = DotProgress()
-            dots.start()
-            speak_text(translations[args.speak], args.speak)
-            dots.stop()
+            # Play speech
+            play_speech(tts_path)
 
             print("Press any key...")
 
