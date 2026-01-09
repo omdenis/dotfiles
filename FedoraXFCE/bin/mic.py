@@ -64,6 +64,11 @@ def record_audio(output_path, model, default_language):
         print_recording_help(model, language)
 
         with sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS, callback=audio_callback):
+            # First dot immediately
+            sys.stdout.write(".")
+            sys.stdout.flush()
+            last_dot_time = time.time()
+
             while not stop_recording:
                 if select.select([sys.stdin], [], [], 0.1)[0]:
                     key = sys.stdin.read(1)
@@ -71,8 +76,8 @@ def record_audio(output_path, model, default_language):
                         next_language = LANGUAGES[key][0]
                     stop_recording = True
                 else:
-                    # Add dot every 2 seconds
-                    if time.time() - last_dot_time >= 1:
+                    # Add dot every 0.5 seconds
+                    if time.time() - last_dot_time >= 0.5:
                         sys.stdout.write(".")
                         sys.stdout.flush()
                         last_dot_time = time.time()
@@ -323,7 +328,7 @@ def main():
             word_count = len(text.split())
             print("-" * 42)
             lines = [translations[lang_code] for lang_code, _ in all_langs]
-            print("\n".join(lines))
+            print("\n\n".join(lines))
             print("-" * 42)
             print(f"Words: {word_count} | Time: {elapsed:.1f}s")
 
