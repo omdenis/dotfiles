@@ -28,17 +28,20 @@ LANGUAGES = {
     "4": ("es", "ES"),
 }
 
+# Model cycle for '0' key
+MODEL_CYCLE = ["turbo", "tiny", "base", "small", "medium", "large"]
+
 
 def print_recording_help(model, language):
     """Print help message during recording."""
     flag = dict((v[0], v[1]) for v in LANGUAGES.values()).get(language, language)
     print(f"Model: {model} | {flag}")
-    print("1-EN  2-RU  3-DA  4-ES  Enter-Stop")
+    print("1-EN  2-RU  3-DA  4-ES  0-Model  Enter-Stop")
     print("-" * 42)
 
 
 def record_audio(output_path, model, default_language):
-    """Record audio from microphone. Returns (success, language_code, next_language)."""
+    """Record audio from microphone. Returns (success, language_code, next_language, next_model)."""
     try:
         import sounddevice as sd
         import numpy as np
@@ -49,6 +52,7 @@ def record_audio(output_path, model, default_language):
 
     language = default_language
     next_language = None
+    next_model = None
     recording = []
     stop_recording = False
     last_dot_time = time.time()
@@ -74,6 +78,9 @@ def record_audio(output_path, model, default_language):
                     key = sys.stdin.read(1)
                     if key in LANGUAGES:
                         next_language = LANGUAGES[key][0]
+                    elif key == "0":
+                        current_idx = MODEL_CYCLE.index(model) if model in MODEL_CYCLE else 0
+                        next_model = MODEL_CYCLE[(current_idx + 1) % len(MODEL_CYCLE)]
                     stop_recording = True
                 else:
                     # Add dot every 0.5 seconds
@@ -89,13 +96,13 @@ def record_audio(output_path, model, default_language):
         termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
 
     if not recording:
-        return False, None, next_language
+        return False, None, next_language, next_model
 
     audio_data = np.concatenate(recording, axis=0)
     audio_int16 = (audio_data * 32767).astype(np.int16)
     wavfile.write(output_path, SAMPLE_RATE, audio_int16)
 
-    return True, language, next_language
+    return True, language, next_language, next_model
 
 
 class DotProgress:
@@ -232,8 +239,8 @@ def main():
     parser.add_argument(
         "-m", "--model",
         type=str,
-        default="turbo",
-        choices=["tiny", "base", "small", "medium", "large", "turbo"],
+        default="base",
+        choices=["tiny", "base", "small", "medium", "turbo"],
         help="Whisper model"
     )
     parser.add_argument(
@@ -304,14 +311,23 @@ def main():
         audio_path = tmp_file.name
 
     current_language = args.listen
+    current_model = args.model
 
     try:
         while True:
-            success, language, next_language = record_audio(audio_path, args.model, current_language)
+            success, language, next_language, next_model = record_audio(audio_path, current_model, current_language)
 
             # Update language for next recording
             if next_language:
                 current_language = next_language
+
+            # Update model and reload if changed
+            if next_model:
+                current_model = next_model
+                print(f"Switching to {current_model} model...")
+                whisper_model = load_whisper_model(current_model)
+                print("Ready!\n")
+                continue
 
             if not success:
                 continue
