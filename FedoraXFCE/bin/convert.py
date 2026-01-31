@@ -15,6 +15,7 @@ class ConversionMode(Enum):
     AUDIO_ONLY = 3
     VIDEO_SLIDES_1FPS = 4
     VIDEO_SLIDES_1FPS_HALF = 5
+    TELEGRAM_5FPS = 6
 
 # Pick your poison — add more if needed
 VIDEO_EXTS = {
@@ -102,6 +103,36 @@ def complress_to_telegram_24fps(src: Path, dst: Path) -> None:
     r = run(args)
     if r.returncode != 0:
         raise RuntimeError(r.stderr.strip() or "ffmpeg failed (video)")
+
+def complress_to_telegram_5fps(src: Path, dst: Path) -> None:
+    """
+    Re-encode to compact H.264 for Telegram (presentation mode):
+      - 5 fps (good for presentations/screencasts)
+      - half resolution (scale by 0.5)
+      - CRF 25, preset slow
+      - mono 64k AAC audio
+    """
+    # Scale filter that ensures even dimensions (required for H.264)
+    # trunc(iw/4)*2 = divide by 2 and round down to nearest even number
+    scale_filter = "scale=trunc(iw/4)*2:trunc(ih/4)*2:flags=lanczos"
+    
+    args = [
+        FFMPEG,
+        "-y",
+        "-i", str(src),
+        "-map_metadata", "-1",
+        "-max_muxing_queue_size", "512",
+        "-vf", scale_filter,
+        "-r", "5",
+        "-crf", "25",
+        "-vcodec", "libx264", "-preset", "slow", "-profile:v", "main", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-ac", "1", "-b:a", "64k",
+        "-movflags", "+faststart",
+        str(dst),
+    ]
+    r = run(args)
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.strip() or "ffmpeg failed (5fps video)")
 
 def extract_audio_compact(src: Path, dst: Path) -> None:
     """
@@ -231,10 +262,11 @@ def show_conversion_dialog(media_files: list[Path]) -> ConversionMode:
     print("="*60)
     print("0) Merge all files into one (video->video or audio->audio)")
     print("1) Telegram (video: 15fps x2)")
-    print("2) Telegram (video: 24fps ")
+    print("2) Telegram (video: 24fps)")
     print("3) Only audio 64Kb")
     print("4) Only video slides (1fps)")
     print("5) Only video slides (1fps, x2)")
+    print("6) Telegram (video: 5fps x2, presentation mode)")
     print("="*60)
     
     # Show current selection
@@ -248,7 +280,7 @@ def show_conversion_dialog(media_files: list[Path]) -> ConversionMode:
     
     while True:
         try:
-            choice = input("\nEnter your choice (0-5): ").strip()
+            choice = input("\nEnter your choice (0-6): ").strip()
             if choice == "0":
                 return ConversionMode.MERGE_FILES
             elif choice == "1":
@@ -261,8 +293,10 @@ def show_conversion_dialog(media_files: list[Path]) -> ConversionMode:
                 return ConversionMode.VIDEO_SLIDES_1FPS
             elif choice == "5":
                 return ConversionMode.VIDEO_SLIDES_1FPS_HALF
+            elif choice == "6":
+                return ConversionMode.TELEGRAM_5FPS
             else:
-                print("Invalid choice. Please enter 0, 1, 2, 3, 4, or 5.")
+                print("Invalid choice. Please enter 0-6.")
         except (EOFError, KeyboardInterrupt):
             print("\n\nCancelled by user.")
             sys.exit(0)
@@ -433,6 +467,22 @@ def main():
 
                 print(f"   > Converting to MP4 (24fps + audio) -> {video_out.name}")
                 complress_to_telegram_24fps(src, video_out)
+                if not video_out.exists() or video_out.stat().st_size == 0:
+                    raise RuntimeError("Output video missing or empty.")
+                print(f"   [OK] Video done")
+
+            elif mode == ConversionMode.TELEGRAM_5FPS:
+                # Video with audio (5fps, x2) - presentation mode
+                if src.suffix.lower() not in VIDEO_EXTS:
+                    print(f"  Skipping (not a video): {src.name}")
+                    continue
+                
+                if video_out.exists():
+                    print(f"  Skipping (already done): {src.name}")
+                    continue
+
+                print(f"   > Converting to MP4 (5fps x2 + audio) -> {video_out.name}")
+                complress_to_telegram_5fps(src, video_out)
                 if not video_out.exists() or video_out.stat().st_size == 0:
                     raise RuntimeError("Output video missing or empty.")
                 print(f"   [OK] Video done")

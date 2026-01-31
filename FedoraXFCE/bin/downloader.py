@@ -16,15 +16,23 @@ Features:
 - For m3u8: uses m3u8 filename
 - Automatically compresses videos to Telegram format (15fps, x2 smaller resolution)
 - Compressed files saved to ./telegram_15fps_x2/ subdirectory
+- Also compresses to presentation mode (3fps, x2) for screencasts/slides
+- Presentation files saved to ./telegram_3fps/ subdirectory
+- Also compresses to presentation mode (5fps, x2) for balanced quality
+- 5fps files saved to ./telegram_5fps/ subdirectory
 
 Usage:
     python downloader.py
-    
+
 Example:
     files.txt → downloads to ./files/ directory
               → compressed to ./files/telegram_15fps_x2/
+              → presentation to ./files/telegram_3fps/
+              → presentation to ./files/telegram_5fps/
     course.txt → downloads to ./course/ directory
                → compressed to ./course/telegram_15fps_x2/
+               → presentation to ./course/telegram_3fps/
+               → presentation to ./course/telegram_5fps/
     
 Requirements:
     - yt-dlp installed in system
@@ -185,6 +193,102 @@ def compress_to_telegram(src: Path, dst: Path) -> bool:
             return False
     except Exception as e:
         print(f"  [ERROR] Compression exception: {e}")
+        return False
+
+def compress_to_telegram_presentation(src: Path, dst: Path) -> bool:
+    """
+    Re-encode to ultra-compact H.264 for Telegram (presentation/screencast mode):
+      - 3 fps (sufficient for slides/screencasts)
+      - half resolution (scale by 0.5)
+      - CRF 28, preset slow
+      - mono 48k AAC audio
+
+    Returns True if successful, False otherwise
+    """
+    scale_filter = "scale=trunc(iw/4)*2:trunc(ih/4)*2:flags=lanczos"
+
+    ffmpeg_cmd = get_ffmpeg_command()
+
+    args = [
+        ffmpeg_cmd,
+        "-y",
+        "-i", str(src),
+        "-map_metadata", "-1",
+        "-max_muxing_queue_size", "512",
+        "-vf", scale_filter,
+        "-r", "3",
+        "-crf", "28",
+        "-vcodec", "libx264", "-preset", "slow", "-profile:v", "main", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-ac", "1", "-b:a", "48k",
+        "-movflags", "+faststart",
+        str(dst),
+    ]
+
+    try:
+        result = subprocess.run(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True
+        )
+
+        if result.returncode == 0 and dst.exists() and dst.stat().st_size > 0:
+            return True
+        else:
+            print(f"  [ERROR] Presentation compression failed:")
+            if result.stdout:
+                print(result.stdout)
+            return False
+    except Exception as e:
+        print(f"  [ERROR] Presentation compression exception: {e}")
+        return False
+
+def compress_to_telegram_5fps(src: Path, dst: Path) -> bool:
+    """
+    Re-encode to compact H.264 for Telegram (balanced presentation mode):
+      - 5 fps (balanced between 3fps and 15fps)
+      - half resolution (scale by 0.5)
+      - CRF 25, preset slow
+      - mono 64k AAC audio
+
+    Returns True if successful, False otherwise
+    """
+    scale_filter = "scale=trunc(iw/4)*2:trunc(ih/4)*2:flags=lanczos"
+
+    ffmpeg_cmd = get_ffmpeg_command()
+
+    args = [
+        ffmpeg_cmd,
+        "-y",
+        "-i", str(src),
+        "-map_metadata", "-1",
+        "-max_muxing_queue_size", "512",
+        "-vf", scale_filter,
+        "-r", "5",
+        "-crf", "25",
+        "-vcodec", "libx264", "-preset", "slow", "-profile:v", "main", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-ac", "1", "-b:a", "64k",
+        "-movflags", "+faststart",
+        str(dst),
+    ]
+
+    try:
+        result = subprocess.run(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True
+        )
+
+        if result.returncode == 0 and dst.exists() and dst.stat().st_size > 0:
+            return True
+        else:
+            print(f"  [ERROR] 5fps compression failed:")
+            if result.stdout:
+                print(result.stdout)
+            return False
+    except Exception as e:
+        print(f"  [ERROR] 5fps compression exception: {e}")
         return False
 
 def check_dependencies():
@@ -458,6 +562,8 @@ def download_media(url: str, output_path: Path) -> bool:
     if is_youtube_url(url):
         cmd.extend(["-f", "bestvideo*+bestaudio/best", "--merge-output-format", "mp4"])
         cmd.extend(["--extractor-args", "youtube:player_client=mediaconnect"])
+        # Download subtitles (manual + auto-generated) as .srt
+        cmd.extend(["--write-subs", "--write-auto-subs", "--sub-langs", "en.*,en", "--convert-subs", "srt"])
         # YouTube now requires cookies for most videos - add them first
         if cookies_file.exists():
             print(f"  [INFO] Using cookies from cookies.txt for YouTube")
@@ -743,7 +849,7 @@ def download_youtube_fallback(url: str, output_path: Path, ffmpeg_location: str 
         ("mediaconnect (any quality)", ["youtube:player_client=mediaconnect"], False, None),
         # android with cookies
         ("android + cookies", ["youtube:player_client=android"], True, "bestvideo*+bestaudio/best"),
-        # web with cookies (needs n-challenge solver)
+        # web + cookies (needs n-challenge solver)
         ("web + cookies", ["youtube:player_client=web"], True, "bestvideo*+bestaudio/best"),
         # android without cookies, any quality
         ("android (any quality)", ["youtube:player_client=android"], False, None),
@@ -868,9 +974,13 @@ def main():
         output_dir.mkdir(exist_ok=True)
         print(f"Output directory: {output_dir.name}/")
         
-        # Create compressed output directory
+        # Create compressed output directories
         compressed_dir = output_dir / "telegram_15fps_x2"
         compressed_dir.mkdir(exist_ok=True)
+        presentation_dir = output_dir / "telegram_3fps"
+        presentation_dir.mkdir(exist_ok=True)
+        presentation_5fps_dir = output_dir / "telegram_5fps"
+        presentation_5fps_dir.mkdir(exist_ok=True)
         
         # Download each URL
         success_count = 0
@@ -892,17 +1002,40 @@ def main():
             # Download media
             if download_media(url, output_path):
                 print_media_info(output_path, "Original")
+                # Report any downloaded subtitles
+                for srt in sorted(output_path.parent.glob(f"{output_path.stem}*.srt")):
+                    print(f"  [Subtitles] {srt.name}")
                 # Compress video to Telegram format
                 compressed_path = compressed_dir / output_path.name
                 print(f"  [INFO] Compressing to Telegram format (15fps, x2)...")
 
                 if compress_to_telegram(output_path, compressed_path):
                     print(f"  [OK] Compressed: {compressed_path.name}")
-                    print_media_info(compressed_path, "Compressed")
-                    success_count += 1
+                    print_media_info(compressed_path, "Compressed 15fps")
                 else:
-                    print(f"  [WARNING] Compression failed, but original file saved")
-                    success_count += 1
+                    print(f"  [WARNING] 15fps compression failed, but original file saved")
+
+                # Compress to presentation mode (5fps)
+                presentation_5fps_path = presentation_5fps_dir / output_path.name
+                print(f"  [INFO] Compressing to Telegram presentation (5fps, x2)...")
+
+                if compress_to_telegram_5fps(output_path, presentation_5fps_path):
+                    print(f"  [OK] Presentation 5fps: {presentation_5fps_path.name}")
+                    print_media_info(presentation_5fps_path, "Compressed 5fps")
+                else:
+                    print(f"  [WARNING] 5fps compression failed, but original file saved")
+
+                # Compress to presentation mode (3fps)
+                presentation_path = presentation_dir / output_path.name
+                print(f"  [INFO] Compressing to Telegram presentation (3fps, x2)...")
+
+                if compress_to_telegram_presentation(output_path, presentation_path):
+                    print(f"  [OK] Presentation: {presentation_path.name}")
+                    print_media_info(presentation_path, "Compressed 3fps")
+                else:
+                    print(f"  [WARNING] 3fps compression failed, but original file saved")
+
+                success_count += 1
             else:
                 fail_count += 1
         
