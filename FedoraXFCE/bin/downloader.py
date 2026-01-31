@@ -35,6 +35,7 @@ Requirements:
 
 import sys
 import re
+import json
 import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
@@ -49,6 +50,90 @@ def get_ffmpeg_command() -> str:
     if FFMPEG_PATH.exists():
         return str(FFMPEG_PATH)
     return "ffmpeg"
+
+def get_ffprobe_command() -> str:
+    """Get ffprobe executable path (custom or system)"""
+    ffprobe_path = FFMPEG_PATH.parent / "ffprobe"
+    if ffprobe_path.exists():
+        return str(ffprobe_path)
+    return "ffprobe"
+
+def format_duration(seconds: float) -> str:
+    """Format seconds into HH:MM:SS or MM:SS"""
+    total = int(seconds)
+    h, remainder = divmod(total, 3600)
+    m, s = divmod(remainder, 60)
+    if h > 0:
+        return f"{h:02d}:{m:02d}:{s:02d}"
+    return f"{m:02d}:{s:02d}"
+
+def format_size(size_bytes: int) -> str:
+    """Format bytes into human-readable size"""
+    if size_bytes >= 1_073_741_824:
+        return f"{size_bytes / 1_073_741_824:.2f} GB"
+    if size_bytes >= 1_048_576:
+        return f"{size_bytes / 1_048_576:.1f} MB"
+    if size_bytes >= 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    return f"{size_bytes} B"
+
+def print_media_info(filepath: Path, label: str = "File info"):
+    """Print media file details using ffprobe"""
+    ffprobe = get_ffprobe_command()
+    cmd = [
+        ffprobe,
+        "-v", "quiet",
+        "-print_format", "json",
+        "-show_format",
+        "-show_streams",
+        str(filepath),
+    ]
+    try:
+        result = subprocess.run(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=15
+        )
+        if result.returncode != 0:
+            return
+
+        info = json.loads(result.stdout)
+        fmt = info.get("format", {})
+        streams = info.get("streams", [])
+
+        file_size = filepath.stat().st_size
+        duration = float(fmt.get("duration", 0))
+        bitrate = int(fmt.get("bit_rate", 0))
+
+        video = next((s for s in streams if s.get("codec_type") == "video"), None)
+        audio = next((s for s in streams if s.get("codec_type") == "audio"), None)
+
+        parts = [f"  [{label}]"]
+        parts.append(f"  Size: {format_size(file_size)}")
+        if duration > 0:
+            parts.append(f"  Duration: {format_duration(duration)}")
+        if bitrate > 0:
+            parts.append(f"  Bitrate: {bitrate // 1000} kbps")
+        if video:
+            w = video.get("width", "?")
+            h = video.get("height", "?")
+            codec = video.get("codec_name", "?")
+            fps_str = video.get("r_frame_rate", "")
+            fps = ""
+            if fps_str and "/" in fps_str:
+                num, den = fps_str.split("/")
+                try:
+                    fps = f"{int(num) / int(den):.1f}"
+                except (ValueError, ZeroDivisionError):
+                    fps = fps_str
+            parts.append(f"  Video: {w}x{h}, {codec}, {fps} fps")
+        if audio:
+            acodec = audio.get("codec_name", "?")
+            sample_rate = audio.get("sample_rate", "?")
+            channels = audio.get("channels", "?")
+            parts.append(f"  Audio: {acodec}, {sample_rate} Hz, {channels}ch")
+
+        print("\n".join(parts))
+    except Exception:
+        pass
 
 def compress_to_telegram(src: Path, dst: Path) -> bool:
     """
@@ -350,7 +435,7 @@ def download_media(url: str, output_path: Path) -> bool:
     
     # For YouTube URLs - use player clients that don't require JS runtime and ALWAYS use cookies
     if is_youtube_url(url):
-        cmd.extend(["--extractor-args", "youtube:player_client=ios,web_creator"])
+        cmd.extend(["--extractor-args", "youtube:player_client=android,web"])
         # YouTube now requires cookies for most videos - add them first
         if cookies_file.exists():
             print(f"  [INFO] Using cookies from cookies.txt for YouTube")
@@ -584,7 +669,7 @@ def download_youtube_with_cookies(url: str, output_path: Path, ffmpeg_location: 
         "-o", str(output_path),
         "--no-check-certificates",
         "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "--extractor-args", "youtube:player_client=ios,web_creator",
+        "--extractor-args", "youtube:player_client=android,web",
     ]
     
     # Use cookies file if it exists, otherwise use browser cookies
@@ -627,20 +712,20 @@ def download_youtube_fallback(url: str, output_path: Path, ffmpeg_location: str 
     Try alternative download strategies for YouTube videos
     """
     strategies = [
-        # Try android without cookies first (most compatible) - request best quality
-        ("android client (no cookies, best quality)", ["youtube:player_client=android"], False, "bestvideo*+bestaudio/best"),
-        ("android client (no cookies, any quality)", ["youtube:player_client=android"], False, None),
-        # Then try with cookies
-        ("android client + cookies (best quality)", ["youtube:player_client=android"], True, "bestvideo*+bestaudio/best"),
-        ("android + bypass age gate", ["youtube:player_client=android", "youtube:player_skip=webpage,configs"], True, "bestvideo*+bestaudio/best"),
-        # Web creator without GVS token issues
-        ("web creator client", ["youtube:player_client=web_creator"], False, "bestvideo*+bestaudio/best"),
+        # android + web with cookies (matches primary config)
+        ("android+web + cookies", ["youtube:player_client=android,web"], True, "bestvideo*+bestaudio/best"),
+        # android alone with cookies
+        ("android + cookies", ["youtube:player_client=android"], True, "bestvideo*+bestaudio/best"),
+        # android without cookies
+        ("android (no cookies)", ["youtube:player_client=android"], False, "bestvideo*+bestaudio/best"),
+        # web alone with cookies
+        ("web + cookies", ["youtube:player_client=web"], True, "bestvideo*+bestaudio/best"),
         # Mobile web
-        ("mweb client", ["youtube:player_client=mweb"], True, "best"),
+        ("mweb + cookies", ["youtube:player_client=mweb"], True, "best"),
         # Media connect (TV)
-        ("mediaconnect client", ["youtube:player_client=mediaconnect"], False, "bestvideo*+bestaudio/best"),
-        # Last resort - web client
-        ("web client", ["youtube:player_client=web"], True, "bestvideo*+bestaudio/best"),
+        ("mediaconnect", ["youtube:player_client=mediaconnect"], False, "bestvideo*+bestaudio/best"),
+        # android without format restriction (any quality)
+        ("android (any quality)", ["youtube:player_client=android"], True, None),
     ]
     
     cookies_file = Path("./cookies.txt")
@@ -690,12 +775,6 @@ def download_youtube_fallback(url: str, output_path: Path, ffmpeg_location: str 
                 # Check for specific error messages
                 if result.stdout:
                     output_lower = result.stdout.lower()
-                    
-                    # Check if only images are available (Shorts, premiere, live stream)
-                    if "only images are available" in output_lower:
-                        print(f"  [ERROR] This video only has images available (YouTube Shorts/Premiere/Live)")
-                        print(f"  [INFO] The video may not be available yet or is not a standard video")
-                        return False
                     
                     # Show abbreviated error for failed attempts
                     lines = result.stdout.strip().split('\n')
@@ -790,12 +869,14 @@ def main():
             
             # Download media
             if download_media(url, output_path):
+                print_media_info(output_path, "Original")
                 # Compress video to Telegram format
                 compressed_path = compressed_dir / output_path.name
                 print(f"  [INFO] Compressing to Telegram format (15fps, x2)...")
-                
+
                 if compress_to_telegram(output_path, compressed_path):
                     print(f"  [OK] Compressed: {compressed_path.name}")
+                    print_media_info(compressed_path, "Compressed")
                     success_count += 1
                 else:
                     print(f"  [WARNING] Compression failed, but original file saved")
