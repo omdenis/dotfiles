@@ -348,15 +348,30 @@ def download_media(url: str, output_path: Path) -> bool:
         "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     ]
     
+    # For YouTube URLs - use player clients that don't require JS runtime and ALWAYS use cookies
+    if is_youtube_url(url):
+        cmd.extend(["--extractor-args", "youtube:player_client=ios,web_creator"])
+        # YouTube now requires cookies for most videos - add them first
+        if cookies_file.exists():
+            print(f"  [INFO] Using cookies from cookies.txt for YouTube")
+            cmd.extend(["--cookies", str(cookies_file)])
+        else:
+            print(f"  [INFO] Using cookies from Chrome browser for YouTube")
+            cmd.extend(["--cookies-from-browser", "chrome"])
+    
     # For direct m3u8/asset URLs - use generic extractor with impersonation
-    if ".m3u8" in url.lower() or "/assets/" in url.lower():
+    elif ".m3u8" in url.lower() or "/assets/" in url.lower():
         cmd.extend(["--force-generic-extractor"])
         cmd.extend(["--extractor-args", "generic:impersonate=chrome"])
-    
-    # Add cookies if file exists
-    if cookies_file.exists():
-        print(f"  [INFO] Using cookies from cookies.txt")
-        cmd.extend(["--cookies", str(cookies_file)])
+        # Add cookies if file exists (non-YouTube)
+        if cookies_file.exists():
+            print(f"  [INFO] Using cookies from cookies.txt")
+            cmd.extend(["--cookies", str(cookies_file)])
+    else:
+        # Add cookies if file exists (other URLs)
+        if cookies_file.exists():
+            print(f"  [INFO] Using cookies from cookies.txt")
+            cmd.extend(["--cookies", str(cookies_file)])
     
     # Add referer for Udemy and similar sites
     if "udemy" in url.lower() or "wistia" in url.lower():
@@ -391,12 +406,21 @@ def download_media(url: str, output_path: Path) -> bool:
                     print(f"--- end of output ---\n")
                 return False
         else:
-            # Check if error is 403 Forbidden
+            # Check if error is sign-in required, 403 Forbidden, format not available, or JS runtime warning
             is_403_error = False
+            is_js_runtime_error = False
+            is_signin_required = False
+            is_format_error = False
             if result.stdout:
                 output_lower = result.stdout.lower()
                 if "403" in output_lower and "forbidden" in output_lower:
                     is_403_error = True
+                if "javascript runtime" in output_lower or "js runtime" in output_lower:
+                    is_js_runtime_error = True
+                if "sign in" in output_lower or "authentication" in output_lower:
+                    is_signin_required = True
+                if "requested format is not available" in output_lower or ("format" in output_lower and "not available" in output_lower):
+                    is_format_error = True
             
             print(f"  [ERROR] Download failed (exit code: {result.returncode})")
             if result.stdout:
@@ -404,8 +428,33 @@ def download_media(url: str, output_path: Path) -> bool:
                 print(result.stdout)
                 print(f"--- end of error output ---\n")
             
-            # Retry with cookies if 403 error
-            if is_403_error:
+            # For YouTube format errors, try alternative strategies
+            if is_youtube_url(url) and is_format_error:
+                print(f"  [INFO] Format not available, trying alternative download methods...")
+                return download_youtube_fallback(url, output_path, ffmpeg_location)
+            
+            # For YouTube sign-in errors, ensure we have cookies
+            if is_youtube_url(url) and is_signin_required:
+                if not cookies_file.exists():
+                    print(f"  [INFO] Sign-in required, exporting cookies from browser...")
+                    if export_cookies_from_browser():
+                        print(f"  [INFO] Retrying download with exported cookies...")
+                        return download_youtube_with_cookies(url, output_path, ffmpeg_location)
+                    else:
+                        print(f"  [ERROR] Could not export cookies. Please ensure you're signed in to YouTube in Chrome")
+                        return False
+                else:
+                    print(f"  [ERROR] Sign-in required but cookies.txt exists. Cookies may be expired.")
+                    print(f"  [INFO] Try deleting cookies.txt and re-running to export fresh cookies")
+                    return False
+            
+            # Retry with alternative strategies for YouTube
+            if is_youtube_url(url) and (is_403_error or is_js_runtime_error):
+                print(f"  [INFO] Detected YouTube download issue, trying alternative methods...")
+                return download_youtube_fallback(url, output_path, ffmpeg_location)
+            
+            # Retry with cookies if 403 error (non-YouTube)
+            if is_403_error and not is_youtube_url(url):
                 print(f"  [INFO] Detected 403 Forbidden error, retrying with cookies...")
                 return download_media_with_cookies(url, output_path, ffmpeg_location)
             
@@ -524,6 +573,142 @@ def download_media_with_cookies(url: str, output_path: Path, ffmpeg_location: st
     except Exception as e:
         print(f"  [ERROR] Exception during retry with cookies: {e}")
         return False
+
+def download_youtube_with_cookies(url: str, output_path: Path, ffmpeg_location: str = None) -> bool:
+    """
+    Download YouTube video with freshly exported cookies
+    """
+    cookies_file = Path("./cookies.txt")
+    
+    cmd = YTDLP_BIN + [
+        "-o", str(output_path),
+        "--no-check-certificates",
+        "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "--extractor-args", "youtube:player_client=ios,web_creator",
+    ]
+    
+    # Use cookies file if it exists, otherwise use browser cookies
+    if cookies_file.exists():
+        cmd.extend(["--cookies", str(cookies_file)])
+    else:
+        cmd.extend(["--cookies-from-browser", "chrome"])
+    
+    # Add ffmpeg location if custom path
+    if ffmpeg_location:
+        cmd.extend(["--ffmpeg-location", ffmpeg_location])
+    
+    cmd.append(url)
+    
+    try:
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True
+        )
+        
+        if result.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0:
+            print(f"  [OK] Downloaded successfully with cookies")
+            return True
+        else:
+            print(f"  [ERROR] Download failed with cookies")
+            if result.stdout:
+                print(f"\n--- yt-dlp error output ---")
+                print(result.stdout)
+                print(f"--- end of error output ---\n")
+            return False
+            
+    except Exception as e:
+        print(f"  [ERROR] Exception: {e}")
+        return False
+
+def download_youtube_fallback(url: str, output_path: Path, ffmpeg_location: str = None) -> bool:
+    """
+    Try alternative download strategies for YouTube videos
+    """
+    strategies = [
+        # Try android without cookies first (most compatible) - request best quality
+        ("android client (no cookies, best quality)", ["youtube:player_client=android"], False, "bestvideo*+bestaudio/best"),
+        ("android client (no cookies, any quality)", ["youtube:player_client=android"], False, None),
+        # Then try with cookies
+        ("android client + cookies (best quality)", ["youtube:player_client=android"], True, "bestvideo*+bestaudio/best"),
+        ("android + bypass age gate", ["youtube:player_client=android", "youtube:player_skip=webpage,configs"], True, "bestvideo*+bestaudio/best"),
+        # Web creator without GVS token issues
+        ("web creator client", ["youtube:player_client=web_creator"], False, "bestvideo*+bestaudio/best"),
+        # Mobile web
+        ("mweb client", ["youtube:player_client=mweb"], True, "best"),
+        # Media connect (TV)
+        ("mediaconnect client", ["youtube:player_client=mediaconnect"], False, "bestvideo*+bestaudio/best"),
+        # Last resort - web client
+        ("web client", ["youtube:player_client=web"], True, "bestvideo*+bestaudio/best"),
+    ]
+    
+    cookies_file = Path("./cookies.txt")
+    
+    for strategy_name, extractor_args, use_cookies, format_spec in strategies:
+        print(f"  [INFO] Trying {strategy_name}...")
+        
+        cmd = YTDLP_BIN + [
+            "-o", str(output_path),
+            "--no-check-certificates",
+            "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        ]
+        
+        # Add format selection if specified
+        if format_spec:
+            cmd.extend(["-f", format_spec])
+        
+        # Add all extractor args
+        for arg in extractor_args:
+            cmd.extend(["--extractor-args", arg])
+        
+        # Add cookies only if strategy requires them
+        if use_cookies:
+            if cookies_file.exists():
+                cmd.extend(["--cookies", str(cookies_file)])
+            else:
+                cmd.extend(["--cookies-from-browser", "chrome"])
+        
+        # Add ffmpeg location if custom path
+        if ffmpeg_location:
+            cmd.extend(["--ffmpeg-location", ffmpeg_location])
+        
+        cmd.append(url)
+        
+        try:
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True
+            )
+            
+            if result.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0:
+                print(f"  [OK] Downloaded successfully using {strategy_name}")
+                return True
+            else:
+                # Check for specific error messages
+                if result.stdout:
+                    output_lower = result.stdout.lower()
+                    
+                    # Check if only images are available (Shorts, premiere, live stream)
+                    if "only images are available" in output_lower:
+                        print(f"  [ERROR] This video only has images available (YouTube Shorts/Premiere/Live)")
+                        print(f"  [INFO] The video may not be available yet or is not a standard video")
+                        return False
+                    
+                    # Show abbreviated error for failed attempts
+                    lines = result.stdout.strip().split('\n')
+                    error_lines = [l for l in lines if 'ERROR' in l.upper()]
+                    if error_lines:
+                        print(f"  [FAILED] {strategy_name}: {error_lines[-1][:80]}")
+                
+        except Exception as e:
+            print(f"  [FAILED] {strategy_name}: {e}")
+            continue
+    
+    print(f"  [ERROR] All YouTube download strategies failed")
+    return False
 
 def main():
     print("="*60)
