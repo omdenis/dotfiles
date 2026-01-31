@@ -31,6 +31,8 @@ Requirements:
     - ffmpeg installed (custom path or system)
     - pip install curl-cffi
     - pip install --upgrade yt-dlp
+    - pip install yt-dlp-ejs (YouTube n-challenge solver for HD formats)
+    - pip install secretstorage (Chrome cookie decryption on Linux)
 """
 
 import sys
@@ -265,7 +267,25 @@ def check_dependencies():
         print(f"Checked: {FFMPEG_PATH} and system PATH")
         print("Install ffmpeg or update FFMPEG_PATH in script")
         return False
-    
+
+    # Check yt-dlp-ejs (YouTube n-challenge solver - required for HD formats)
+    try:
+        import importlib.metadata
+        importlib.metadata.version("yt-dlp-ejs")
+        print(f"  [OK] yt-dlp-ejs installed")
+    except Exception:
+        print(f"  [ERROR] yt-dlp-ejs not installed (required for YouTube HD downloads)")
+        print(f"  Install: pip install yt-dlp-ejs")
+        return False
+
+    # Check secretstorage (required for Chrome cookie decryption on Linux)
+    try:
+        import secretstorage
+        print(f"  [OK] secretstorage installed")
+    except ImportError:
+        print(f"  [WARNING] secretstorage not installed (needed for Chrome cookie decryption)")
+        print(f"  Install: pip install secretstorage")
+
     return True
 
 def find_txt_files(root: Path) -> list[Path]:
@@ -431,11 +451,13 @@ def download_media(url: str, output_path: Path) -> bool:
         "-o", str(output_path),
         "--no-check-certificates",  # Skip SSL certificate verification
         "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "--js-runtimes", "node",
     ]
-    
-    # For YouTube URLs - use player clients that don't require JS runtime and ALWAYS use cookies
+
+    # For YouTube URLs - mediaconnect client provides HD formats without PO Token
     if is_youtube_url(url):
-        cmd.extend(["--extractor-args", "youtube:player_client=android,web"])
+        cmd.extend(["-f", "bestvideo*+bestaudio/best", "--merge-output-format", "mp4"])
+        cmd.extend(["--extractor-args", "youtube:player_client=mediaconnect"])
         # YouTube now requires cookies for most videos - add them first
         if cookies_file.exists():
             print(f"  [INFO] Using cookies from cookies.txt for YouTube")
@@ -667,11 +689,14 @@ def download_youtube_with_cookies(url: str, output_path: Path, ffmpeg_location: 
     
     cmd = YTDLP_BIN + [
         "-o", str(output_path),
+        "-f", "bestvideo*+bestaudio/best",
+        "--merge-output-format", "mp4",
         "--no-check-certificates",
+        "--js-runtimes", "node",
         "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "--extractor-args", "youtube:player_client=android,web",
+        "--extractor-args", "youtube:player_client=mediaconnect",
     ]
-    
+
     # Use cookies file if it exists, otherwise use browser cookies
     if cookies_file.exists():
         cmd.extend(["--cookies", str(cookies_file)])
@@ -712,36 +737,33 @@ def download_youtube_fallback(url: str, output_path: Path, ffmpeg_location: str 
     Try alternative download strategies for YouTube videos
     """
     strategies = [
-        # android + web with cookies (matches primary config)
-        ("android+web + cookies", ["youtube:player_client=android,web"], True, "bestvideo*+bestaudio/best"),
-        # android alone with cookies
+        # mediaconnect provides HD formats without PO Token
+        ("mediaconnect (HD)", ["youtube:player_client=mediaconnect"], False, "bestvideo*+bestaudio/best"),
+        # mediaconnect any quality
+        ("mediaconnect (any quality)", ["youtube:player_client=mediaconnect"], False, None),
+        # android with cookies
         ("android + cookies", ["youtube:player_client=android"], True, "bestvideo*+bestaudio/best"),
-        # android without cookies
-        ("android (no cookies)", ["youtube:player_client=android"], False, "bestvideo*+bestaudio/best"),
-        # web alone with cookies
+        # web with cookies (needs n-challenge solver)
         ("web + cookies", ["youtube:player_client=web"], True, "bestvideo*+bestaudio/best"),
-        # Mobile web
-        ("mweb + cookies", ["youtube:player_client=mweb"], True, "best"),
-        # Media connect (TV)
-        ("mediaconnect", ["youtube:player_client=mediaconnect"], False, "bestvideo*+bestaudio/best"),
-        # android without format restriction (any quality)
-        ("android (any quality)", ["youtube:player_client=android"], True, None),
+        # android without cookies, any quality
+        ("android (any quality)", ["youtube:player_client=android"], False, None),
     ]
-    
+
     cookies_file = Path("./cookies.txt")
-    
+
     for strategy_name, extractor_args, use_cookies, format_spec in strategies:
         print(f"  [INFO] Trying {strategy_name}...")
-        
+
         cmd = YTDLP_BIN + [
             "-o", str(output_path),
             "--no-check-certificates",
+            "--js-runtimes", "node",
             "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         ]
-        
+
         # Add format selection if specified
         if format_spec:
-            cmd.extend(["-f", format_spec])
+            cmd.extend(["-f", format_spec, "--merge-output-format", "mp4"])
         
         # Add all extractor args
         for arg in extractor_args:
