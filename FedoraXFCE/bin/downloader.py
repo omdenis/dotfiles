@@ -198,7 +198,7 @@ def compress_to_telegram(src: Path, dst: Path) -> bool:
 def compress_to_telegram_presentation(src: Path, dst: Path) -> bool:
     """
     Re-encode to ultra-compact H.264 for Telegram (presentation/screencast mode):
-      - 3 fps (sufficient for slides/screencasts)
+      - 5 fps (sufficient for slides/screencasts)
       - half resolution (scale by 0.5)
       - CRF 28, preset slow
       - mono 48k AAC audio
@@ -216,7 +216,7 @@ def compress_to_telegram_presentation(src: Path, dst: Path) -> bool:
         "-map_metadata", "-1",
         "-max_muxing_queue_size", "512",
         "-vf", scale_filter,
-        "-r", "3",
+        "-r", "5",
         "-crf", "28",
         "-vcodec", "libx264", "-preset", "slow", "-profile:v", "main", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-ac", "1", "-b:a", "48k",
