@@ -9,14 +9,14 @@ SAMPLE_RATE = 16000  # Optimal for Whisper
 CHANNELS = 1  # Mono audio
 
 # Whisper settings
-WHISPER_MODEL = "base"  # Options: tiny, base, small, medium, large
+WHISPER_MODEL = "turbo"  # Options: tiny, base, small, medium, large, turbo
 WHISPER_LANGUAGE = None  # None for auto-detect, or set to "en", "es", etc.
 
 # Hotkey settings
 HOTKEY = "<ctrl>+<space>"
 
 # Pasting settings
-PREFER_DIRECT_TYPING = False  # If True, always use direct typing (slower but more compatible)
+PREFER_DIRECT_TYPING = True  # If True, always use direct typing (slower but more compatible)
 USE_TYPING_FALLBACK = True    # Fall back to direct typing if clipboard paste fails
 RESTORE_CLIPBOARD = False     # Restore original clipboard after pasting
 
