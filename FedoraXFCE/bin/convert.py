@@ -16,6 +16,7 @@ class ConversionMode(Enum):
     VIDEO_SLIDES_1FPS = 4
     VIDEO_SLIDES_1FPS_HALF = 5
     TELEGRAM_5FPS = 6
+    TELEGRAM_24FPS_ORIGINAL = 7
 
 # Pick your poison — add more if needed
 VIDEO_EXTS = {
@@ -133,6 +134,35 @@ def complress_to_telegram_5fps(src: Path, dst: Path) -> None:
     r = run(args)
     if r.returncode != 0:
         raise RuntimeError(r.stderr.strip() or "ffmpeg failed (5fps video)")
+
+def complress_to_telegram_24fps_original(src: Path, dst: Path) -> None:
+    """
+    Re-encode to compact H.264 for Telegram (presentation mode, original resolution):
+      - 24 fps (good for presentations/screencasts)
+      - original resolution (no scaling, only ensure even dimensions)
+      - CRF 25, preset slow
+      - mono 64k AAC audio
+    """
+    # Ensure even dimensions for H.264 (but keep original size)
+    scale_filter = "scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos"
+    
+    args = [
+        FFMPEG,
+        "-y",
+        "-i", str(src),
+        "-map_metadata", "-1",
+        "-max_muxing_queue_size", "512",
+        "-vf", scale_filter,
+        "-r", "24",
+        "-crf", "25",
+        "-vcodec", "libx264", "-preset", "slow", "-profile:v", "main", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-ac", "1", "-b:a", "64k",
+        "-movflags", "+faststart",
+        str(dst),
+    ]
+    r = run(args)
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.strip() or "ffmpeg failed (5fps original video)")
 
 def extract_audio_compact(src: Path, dst: Path) -> None:
     """
@@ -267,6 +297,7 @@ def show_conversion_dialog(media_files: list[Path]) -> ConversionMode:
     print("4) Only video slides (1fps)")
     print("5) Only video slides (1fps, x2)")
     print("6) Telegram (video: 5fps x2, presentation mode)")
+    print("7) Telegram (video: 24fps, presentation)")
     print("="*60)
     
     # Show current selection
@@ -280,7 +311,7 @@ def show_conversion_dialog(media_files: list[Path]) -> ConversionMode:
     
     while True:
         try:
-            choice = input("\nEnter your choice (0-6): ").strip()
+            choice = input("\nEnter your choice (0-7): ").strip()
             if choice == "0":
                 return ConversionMode.MERGE_FILES
             elif choice == "1":
@@ -295,8 +326,10 @@ def show_conversion_dialog(media_files: list[Path]) -> ConversionMode:
                 return ConversionMode.VIDEO_SLIDES_1FPS_HALF
             elif choice == "6":
                 return ConversionMode.TELEGRAM_5FPS
+            elif choice == "7":
+                return ConversionMode.TELEGRAM_24FPS_ORIGINAL
             else:
-                print("Invalid choice. Please enter 0-6.")
+                print("Invalid choice. Please enter 0-7.")
         except (EOFError, KeyboardInterrupt):
             print("\n\nCancelled by user.")
             sys.exit(0)
@@ -483,6 +516,22 @@ def main():
 
                 print(f"   > Converting to MP4 (5fps x2 + audio) -> {video_out.name}")
                 complress_to_telegram_5fps(src, video_out)
+                if not video_out.exists() or video_out.stat().st_size == 0:
+                    raise RuntimeError("Output video missing or empty.")
+                print(f"   [OK] Video done")
+
+            elif mode == ConversionMode.TELEGRAM_5FPS_ORIGINAL:
+                # Video with audio (5fps, original resolution) - presentation mode
+                if src.suffix.lower() not in VIDEO_EXTS:
+                    print(f"  Skipping (not a video): {src.name}")
+                    continue
+                
+                if video_out.exists():
+                    print(f"  Skipping (already done): {src.name}")
+                    continue
+
+                print(f"   > Converting to MP4 (24fps original + audio) -> {video_out.name}")
+                complress_to_telegram_24fps_original(src, video_out)
                 if not video_out.exists() or video_out.stat().st_size == 0:
                     raise RuntimeError("Output video missing or empty.")
                 print(f"   [OK] Video done")
