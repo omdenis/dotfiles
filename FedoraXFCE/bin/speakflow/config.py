@@ -1,6 +1,5 @@
 """Configuration management for SpeakFlow."""
 
-import os
 from pathlib import Path
 
 # Application settings
@@ -9,7 +8,7 @@ SAMPLE_RATE = 16000  # Optimal for Whisper
 CHANNELS = 1  # Mono audio
 
 # Whisper settings
-WHISPER_MODEL = "turbo"  # Options: tiny, base, small, medium, large, turbo
+WHISPER_MODEL = "base"  # Options: tiny, base, small, medium, large, turbo
 WHISPER_LANGUAGE = None  # None for auto-detect, or set to "en", "es", etc.
 
 # Hotkey settings
