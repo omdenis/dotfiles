@@ -9,7 +9,7 @@ import sys
 import threading
 from pathlib import Path
 
-from config import State, APP_NAME
+from config import State, APP_NAME, USE_TYPING_FALLBACK, RESTORE_CLIPBOARD, PREFER_DIRECT_TYPING
 from recorder import AudioRecorder
 from transcriber import Transcriber
 from hotkey import HotkeyListener
@@ -100,7 +100,12 @@ class SpeakFlow:
 
             # Paste text into active application
             logger.info(f"Transcribed text: {text}")
-            self.paster.paste_text(text, restore_clipboard=False)
+            self.paster.paste_text(
+                text,
+                restore_clipboard=RESTORE_CLIPBOARD,
+                use_fallback=USE_TYPING_FALLBACK,
+                prefer_typing=PREFER_DIRECT_TYPING
+            )
 
             # Return to idle state
             with self.state_lock:

@@ -15,6 +15,11 @@ WHISPER_LANGUAGE = None  # None for auto-detect, or set to "en", "es", etc.
 # Hotkey settings
 HOTKEY = "<ctrl>+<space>"
 
+# Pasting settings
+PREFER_DIRECT_TYPING = False  # If True, always use direct typing (slower but more compatible)
+USE_TYPING_FALLBACK = True    # Fall back to direct typing if clipboard paste fails
+RESTORE_CLIPBOARD = False     # Restore original clipboard after pasting
+
 # Temporary file settings
 TEMP_DIR = Path("/tmp") / "speakflow"
 TEMP_DIR.mkdir(exist_ok=True)

@@ -76,7 +76,7 @@ Ensure you're running a desktop environment with system tray support (XFCE, GNOM
 ### Whisper model download
 On first run, Whisper will download the selected model. This is a one-time operation.
 
-## Architecture
+## Architecture 
 
 - `main.py`: Main orchestrator and state machine
 - `recorder.py`: Audio recording using sounddevice
