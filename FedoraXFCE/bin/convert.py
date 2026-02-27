@@ -520,7 +520,7 @@ def main():
                     raise RuntimeError("Output video missing or empty.")
                 print(f"   [OK] Video done")
 
-            elif mode == ConversionMode.TELEGRAM_5FPS_ORIGINAL:
+            elif mode == ConversionMode.TELEGRAM_24FPS_ORIGINAL:
                 # Video with audio (5fps, original resolution) - presentation mode
                 if src.suffix.lower() not in VIDEO_EXTS:
                     print(f"  Skipping (not a video): {src.name}")

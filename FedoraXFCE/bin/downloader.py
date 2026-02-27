@@ -375,8 +375,16 @@ def check_dependencies():
     # Check yt-dlp-ejs (YouTube n-challenge solver - required for HD formats)
     try:
         import importlib.metadata
-        importlib.metadata.version("yt-dlp-ejs")
-        print(f"  [OK] yt-dlp-ejs installed")
+        ejs_version = importlib.metadata.version("yt-dlp-ejs")
+        try:
+            ver_tuple = tuple(int(x) for x in ejs_version.split(".")[:3])
+            if ver_tuple < (0, 5, 0):
+                print(f"  [WARNING] yt-dlp-ejs v{ejs_version} is outdated (need >= 0.5.0, HD formats may be missing)")
+                print(f"  Update: pip install --upgrade yt-dlp-ejs")
+            else:
+                print(f"  [OK] yt-dlp-ejs v{ejs_version} installed")
+        except Exception:
+            print(f"  [OK] yt-dlp-ejs v{ejs_version} installed")
     except Exception:
         print(f"  [ERROR] yt-dlp-ejs not installed (required for YouTube HD downloads)")
         print(f"  Install: pip install yt-dlp-ejs")
@@ -619,18 +627,30 @@ def download_media(url: str, output_path: Path) -> bool:
                     print(f"--- end of output ---\n")
                 return False
         else:
-            # Check if error is sign-in required, 403 Forbidden, format not available, or JS runtime warning
+            # If video file exists, check if only subtitle errors caused non-zero exit
+            if output_path.exists() and output_path.stat().st_size > 0:
+                if result.stdout:
+                    error_lines = [l for l in result.stdout.splitlines() if l.strip().startswith("ERROR:")]
+                    subtitle_errors = [l for l in error_lines if "subtitle" in l.lower()]
+                    if error_lines and len(error_lines) == len(subtitle_errors):
+                        print(f"  [WARNING] Subtitle download failed (rate limited / HTTP 429), but video downloaded successfully")
+                        return True
+
+            # Check if error is sign-in required, 403 Forbidden, format not available, or JS runtime error
+            # Only inspect actual ERROR lines to avoid false positives from warnings
             is_403_error = False
             is_js_runtime_error = False
             is_signin_required = False
             is_format_error = False
             if result.stdout:
                 output_lower = result.stdout.lower()
-                if "403" in output_lower and "forbidden" in output_lower:
+                # Only look at ERROR lines for JS runtime issues (warnings about JS are expected and non-fatal)
+                error_lines_lower = [l.lower() for l in result.stdout.splitlines() if l.strip().startswith("ERROR:")]
+                if any("403" in l and "forbidden" in l for l in error_lines_lower):
                     is_403_error = True
-                if "javascript runtime" in output_lower or "js runtime" in output_lower:
+                if any("javascript runtime" in l or "js runtime" in l for l in error_lines_lower):
                     is_js_runtime_error = True
-                if "sign in" in output_lower or "authentication" in output_lower:
+                if any("sign in" in l or "authentication" in l for l in error_lines_lower):
                     is_signin_required = True
                 if "requested format is not available" in output_lower or ("format" in output_lower and "not available" in output_lower):
                     is_format_error = True
