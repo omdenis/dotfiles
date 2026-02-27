@@ -14,8 +14,10 @@ Features:
 - Files saved with numbered prefixes (001, 002, etc.)
 - For YouTube: uses video title with underscores + video ID in filename
 - For m3u8: uses m3u8 filename
-- Automatically compresses videos to Telegram format (15fps, x2 smaller resolution)
-- Compressed files saved to ./telegram_15fps_x2/ subdirectory
+- Automatically compresses videos to Telegram format (25fps, x2 smaller resolution)
+- Compressed files saved to ./telegram_25fps_x2/ subdirectory
+- Also compresses to compact mode (25fps, x3 smaller resolution)
+- Compact files saved to ./telegram_25fps_x3/ subdirectory
 - Also compresses to presentation mode (3fps, x2) for screencasts/slides
 - Presentation files saved to ./telegram_3fps/ subdirectory
 - Also compresses to presentation mode (5fps, x2) for balanced quality
@@ -26,11 +28,13 @@ Usage:
 
 Example:
     files.txt → downloads to ./files/ directory
-              → compressed to ./files/telegram_15fps_x2/
+              → compressed to ./files/telegram_25fps_x2/
+              → compact to ./files/telegram_25fps_x3/
               → presentation to ./files/telegram_3fps/
               → presentation to ./files/telegram_5fps/
     course.txt → downloads to ./course/ directory
-               → compressed to ./course/telegram_15fps_x2/
+               → compressed to ./course/telegram_25fps_x2/
+               → compact to ./course/telegram_25fps_x3/
                → presentation to ./course/telegram_3fps/
                → presentation to ./course/telegram_5fps/
     
@@ -148,19 +152,19 @@ def print_media_info(filepath: Path, label: str = "File info"):
 def compress_to_telegram(src: Path, dst: Path) -> bool:
     """
     Re-encode to compact H.264 suitable for Telegram:
-      - 15 fps
-      - half resolution (scale by 0.5)
+      - 25 fps
+      - half resolution (scale by 0.5, x2 smaller)
       - CRF 25, preset slow
       - mono 64k AAC audio
-    
+
     Returns True if successful, False otherwise
     """
     # Scale filter that ensures even dimensions (required for H.264)
     # trunc(iw/4)*2 = divide by 2 and round down to nearest even number
     scale_filter = "scale=trunc(iw/4)*2:trunc(ih/4)*2:flags=lanczos"
-    
+
     ffmpeg_cmd = get_ffmpeg_command()
-    
+
     args = [
         ffmpeg_cmd,
         "-y",
@@ -168,14 +172,14 @@ def compress_to_telegram(src: Path, dst: Path) -> bool:
         "-map_metadata", "-1",
         "-max_muxing_queue_size", "512",
         "-vf", scale_filter,
-        "-r", "15",
+        "-r", "25",
         "-crf", "25",
         "-vcodec", "libx264", "-preset", "slow", "-profile:v", "main", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-ac", "1", "-b:a", "64k",  # Mono 64k AAC audio
         "-movflags", "+faststart",
         str(dst),
     ]
-    
+
     try:
         result = subprocess.run(
             args,
@@ -183,7 +187,7 @@ def compress_to_telegram(src: Path, dst: Path) -> bool:
             stderr=subprocess.STDOUT,
             text=True
         )
-        
+
         if result.returncode == 0 and dst.exists() and dst.stat().st_size > 0:
             return True
         else:
@@ -193,6 +197,56 @@ def compress_to_telegram(src: Path, dst: Path) -> bool:
             return False
     except Exception as e:
         print(f"  [ERROR] Compression exception: {e}")
+        return False
+
+
+def compress_to_telegram_25fps_x3(src: Path, dst: Path) -> bool:
+    """
+    Re-encode to very compact H.264 suitable for Telegram:
+      - 25 fps
+      - third resolution (scale by 1/3, x3 smaller)
+      - CRF 25, preset slow
+      - mono 64k AAC audio
+
+    Returns True if successful, False otherwise
+    """
+    # trunc(iw/6)*2 = divide by 3 and round down to nearest even number
+    scale_filter = "scale=trunc(iw/6)*2:trunc(ih/6)*2:flags=lanczos"
+
+    ffmpeg_cmd = get_ffmpeg_command()
+
+    args = [
+        ffmpeg_cmd,
+        "-y",
+        "-i", str(src),
+        "-map_metadata", "-1",
+        "-max_muxing_queue_size", "512",
+        "-vf", scale_filter,
+        "-r", "25",
+        "-crf", "25",
+        "-vcodec", "libx264", "-preset", "slow", "-profile:v", "main", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-ac", "1", "-b:a", "64k",
+        "-movflags", "+faststart",
+        str(dst),
+    ]
+
+    try:
+        result = subprocess.run(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True
+        )
+
+        if result.returncode == 0 and dst.exists() and dst.stat().st_size > 0:
+            return True
+        else:
+            print(f"  [ERROR] 25fps x3 compression failed:")
+            if result.stdout:
+                print(result.stdout)
+            return False
+    except Exception as e:
+        print(f"  [ERROR] 25fps x3 compression exception: {e}")
         return False
 
 def compress_to_telegram_presentation(src: Path, dst: Path) -> bool:
@@ -995,8 +1049,10 @@ def main():
         print(f"Output directory: {output_dir.name}/")
         
         # Create compressed output directories
-        compressed_dir = output_dir / "telegram_15fps_x2"
+        compressed_dir = output_dir / "telegram_25fps_x2"
         compressed_dir.mkdir(exist_ok=True)
+        compressed_x3_dir = output_dir / "telegram_25fps_x3"
+        compressed_x3_dir.mkdir(exist_ok=True)
         presentation_dir = output_dir / "telegram_3fps"
         presentation_dir.mkdir(exist_ok=True)
         presentation_5fps_dir = output_dir / "telegram_5fps"
@@ -1027,13 +1083,23 @@ def main():
                     print(f"  [Subtitles] {srt.name}")
                 # Compress video to Telegram format
                 compressed_path = compressed_dir / output_path.name
-                print(f"  [INFO] Compressing to Telegram format (15fps, x2)...")
+                print(f"  [INFO] Compressing to Telegram format (25fps, x2)...")
 
                 if compress_to_telegram(output_path, compressed_path):
                     print(f"  [OK] Compressed: {compressed_path.name}")
-                    print_media_info(compressed_path, "Compressed 15fps")
+                    print_media_info(compressed_path, "Compressed 25fps x2")
                 else:
-                    print(f"  [WARNING] 15fps compression failed, but original file saved")
+                    print(f"  [WARNING] 25fps x2 compression failed, but original file saved")
+
+                # Compress to compact mode (25fps, x3)
+                compressed_x3_path = compressed_x3_dir / output_path.name
+                print(f"  [INFO] Compressing to Telegram compact (25fps, x3)...")
+
+                if compress_to_telegram_25fps_x3(output_path, compressed_x3_path):
+                    print(f"  [OK] Compact x3: {compressed_x3_path.name}")
+                    print_media_info(compressed_x3_path, "Compressed 25fps x3")
+                else:
+                    print(f"  [WARNING] 25fps x3 compression failed, but original file saved")
 
                 # Compress to presentation mode (5fps)
                 presentation_5fps_path = presentation_5fps_dir / output_path.name
